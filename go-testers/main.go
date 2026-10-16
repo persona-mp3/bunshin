@@ -39,10 +39,12 @@ type RPC struct {
 	AppendEntry
 }
 
-// tests we're going to run now
-// 1. Upon init, it should return false, with logIndex and term as 0
-// 2. after sending the first one, all incoming requests should send a new
-// entry and a correct prevLogIndex and term
+// TODO: we need to be able to pass flags here to specify what kind of 
+// tests we want to run for example
+//
+// tester 1738 3 --type commands -> will send out bunch of commands to the node
+// tester 1738 56 --type append_entry -> will send append_entry
+// tester 6677 67 --type all  will be the default
 
 func main() {
 	if len(os.Args) < 3 {
@@ -64,6 +66,7 @@ func main() {
 
 	runInitTest(uint32(nodeId), encoder, decoder)
 	sendEntries(uint32(nodeId), encoder, decoder)
+	sendCommands(uint32(nodeId), encoder, decoder)
 }
 
 func runInitTest(nodeId uint32, encoder *json.Encoder, decoder *json.Decoder) {

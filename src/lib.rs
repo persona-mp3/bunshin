@@ -3,22 +3,32 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 use std::net::TcpStream;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Entry {
     pub index: u32,
     pub term: u32,
     pub command: Command,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+/// Commands are sent by external clients
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Command {
     pub key: String,
     pub value: String,
+    // TODO: why
+    #[serde(default = "default_operation")]
+    pub operation: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CommandReply {
+    value: String,
+    success: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum RPC {
+enum RPC {
     AppendEntry {
         id: u32,
         previous_log_index: u32,
@@ -28,6 +38,8 @@ pub enum RPC {
         entry: Option<Entry>,
         success: bool,
     },
+
+    Command(Command),
 }
 
 #[derive(Debug)]
@@ -100,6 +112,28 @@ impl State {
 
         Ok(actual_stop_index)
     }
+
+    fn has_key(&self, key: &String) -> Option<Command> {
+        for entry in self.entries.iter().rev() {
+            if entry.command.key == *key {
+                return Some(entry.command.clone());
+            };
+        }
+        None
+    }
+
+    fn append_new_entry(&mut self, cmd: &Command) -> Entry {
+        self.previous_log_index += 1;
+
+        let entry = Entry {
+            index: self.previous_log_index,
+            term: self.previous_log_term,
+            command: cmd.clone(),
+        };
+
+        self.entries.push(entry.clone());
+        entry
+    }
 }
 
 pub fn handle_conn(
@@ -116,8 +150,8 @@ pub fn handle_conn(
     for msg in parser.into_iter::<RPC>() {
         let rpc_msg = match msg {
             Ok(m) => m,
-            Err(err) => {
-                println!("error parsing message {:?}", err);
+            Err(ref err) => {
+                println!("error parsing message {:?}, {:?}", err, &msg);
                 continue;
             }
         };
@@ -205,6 +239,74 @@ pub fn handle_conn(
                 writer.write_all(b"\n")?;
                 writer.flush()?;
             }
+
+            RPC::Command(command) => {
+                let mut reply = CommandReply {
+                    success: true,
+                    value: "".to_string(),
+                };
+
+                // since get is 'read', the last operation must not be a 'rm', otherwise it doesn't exist
+                match command.operation.as_str() {
+                    "get" => match state.has_key(&command.key) {
+                        Some(stored_entry) => {
+                            if stored_entry.operation == "rm" {
+                                reply.success = false;
+                                reply.value = "not_found".to_string();
+                            } else if stored_entry.operation == "set " {
+                                reply.success = true;
+                                reply.value = stored_entry.value;
+                            } else {
+                                panic!(
+                                    "last_operation was neither set or rm
+                                        {:?},",
+                                    &stored_entry
+                                )
+                            }
+                        }
+                        None => {
+                            reply.success = false;
+                            reply.value = "not_found".to_string();
+                        }
+                    },
+
+                    "rm" => match state.has_key(&command.key) {
+                        Some(stored_entry) => {
+                            if stored_entry.operation != "rm" {
+                                state.append_new_entry(&command);
+                                reply.value = stored_entry.value;
+                                println!(
+                                    "[rm_request] last_operation: {:?} for key: {:?}",
+                                    stored_entry.operation, stored_entry.key,
+                                );
+                            } else if stored_entry.operation == "rm" {
+                                reply.success = false;
+                                reply.value = "not_found".to_string();
+                            }
+                        }
+                        None => {
+                            reply.success = false;
+                            reply.value = "not_found".to_string();
+                        }
+                    },
+
+                    "set" => {
+                        let new_entry = state.append_new_entry(&command);
+                        reply.value = command.value;
+                        println!("new entry: {:?}", new_entry)
+                    }
+
+                    &_ => {
+                        reply.success = false;
+                        reply.value = format!("unknown operation '{:?}'", command.operation);
+                        println!("invalid request receieved: {:?}", command)
+                    }
+                }
+
+                serde_json::to_writer(&mut writer, &reply)?;
+                writer.write_all(b"\n")?;
+                writer.flush()?;
+            }
         }
     }
 
@@ -213,4 +315,8 @@ pub fn handle_conn(
 
 fn default_commit_index() -> u32 {
     0
+}
+
+fn default_operation() -> String {
+    "error_invalid".to_string()
 }

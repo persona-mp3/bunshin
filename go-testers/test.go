@@ -7,9 +7,12 @@ import (
 	"net"
 	"os"
 	"strconv"
-	"testing"
+)
 
-	"github.com/stretchr/testify/assert"
+const (
+	green = "\033[32m"
+	red   = "\033[31m"
+	reset = "\033[0m"
 )
 
 type Command struct {
@@ -95,7 +98,11 @@ func runInitTest(nodeId uint32, encoder *json.Encoder, decoder *json.Decoder) {
 		log.Fatal("runInitTest failed while decoding: reason", err)
 	}
 
-	fmt.Printf("initReply: %+v\n", initReply)
+	if initReply.Success || initReply.PreviousLogIndex != 0 || initReply.PreviousLogTerm != 0 {
+		fmt.Printf("expected initReply to be false, got %t, %+v\n", initReply.Success, initReply)
+		os.Exit(1)
+	}
+
 }
 
 // now we can now can now send more entries
@@ -174,6 +181,21 @@ func sendEntries(nodeId uint32, encoder *json.Encoder, decoder *json.Decoder) {
 		},
 	}
 
-	assert.Equal(&testing.T{}, incomingReplies, expectedReplies)
+	failedCount := 0
+	passCount := 0
+	for idx, expectedReply := range expectedReplies {
+		reply := incomingReplies[idx]
+		if reply != expectedReply {
+			fmt.Printf(
+				"expected reply and reply don't match\n reply: %+v\n expectedReply: %+v\n",
+				reply, expectedReply)
+			failedCount += 1
+			continue
+		}
+
+		passCount += 1
+	}
+
+	fmt.Printf("\n%spassed: %d%s  %sfailed: %d%s\n", green, passCount, reset, red, failedCount, reset)
 
 }

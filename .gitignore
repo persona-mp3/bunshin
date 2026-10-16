@@ -1,2 +1,3 @@
 target/
 go-testers/testers
+node-*.json

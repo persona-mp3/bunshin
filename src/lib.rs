@@ -32,24 +32,30 @@ pub enum RPC {
 
 #[derive(Debug)]
 pub struct State {
+    pub id: u32,
     pub previous_log_index: u32,
     pub previous_log_term: u32,
     pub entries: Vec<Entry>,
     pub file: Option<File>,
     commit_index: u32,
+    file_name: String,
 }
 
 impl State {
-    pub fn default() -> State {
+    pub fn default(id: u32) -> State {
         let previous_log_index = 0;
         let previous_log_term = 0;
         let entries: Vec<Entry> = vec![];
+        let file_name = format!("node-{}-persist.json", id);
+
         State {
+            id,
             commit_index: 0,
             previous_log_index,
             previous_log_term,
             entries,
             file: None,
+            file_name,
         }
     }
 
@@ -57,24 +63,42 @@ impl State {
     /// to `self.stop`. If no logs exists within such range, it returns the current
     /// value of `self.commit`. Otherwise it returns the index of the latest log
     /// that has been persisted
-    fn persist_till(&mut self, stop: u32) -> u32 {
+    fn persist_till(&mut self, stop: u32) -> Result<u32, Box<dyn std::error::Error>> {
         let mut actual_stop_index = 0;
-        if let Some((_, volatile_logs)) = self.entries.split_at_checked(self.commit_index as usize)
+        let file = File::options()
+            .create(true)
+            .append(true)
+            .open(&self.file_name)?;
+
+        let mut writer = BufWriter::new(file);
+
+        if let Some(volatile_logs) = self
+            .entries
+            .get(self.commit_index as usize..stop as usize + 1)
+        // to make it inclusive we add 1
         {
             for log in volatile_logs.iter() {
-                if log.index > stop {
-                    break;
+                let json = serde_json::to_string(log);
+                if let Ok(value) = json {
+                    if let Err(err) = serde_json::to_writer_pretty(&mut writer, &value) {
+                        eprintln!("failed to persist: {:?}, {:?}, json: {:?}", err, log, value);
+                        continue;
+                    }
+
+                    writer.write_all(b"\n")?;
+                } else {
+                    eprintln!("could not marshall: {:?}, {:?}", json.unwrap(), log);
+                    continue;
                 }
 
                 actual_stop_index = log.index;
-                println!("{:?}", log);
             }
         } else {
             println!("nothing to update");
-            self.commit_index;
+            return Ok(self.commit_index);
         }
 
-        actual_stop_index
+        Ok(actual_stop_index)
     }
 }
 
@@ -83,7 +107,7 @@ pub fn handle_conn(
     conn: TcpStream,
     state: &mut State,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!("accepted new connection {:?}", conn.peer_addr()?);
+    println!("accepted new connection from {:?}", conn.peer_addr()?);
 
     let reader = BufReader::new(conn.try_clone()?);
     let mut writer = BufWriter::new(conn);
@@ -131,7 +155,7 @@ pub fn handle_conn(
                     || previous_log_term > state.previous_log_term
                 {
                     println!(
-                        "prev_log_index and prev_log_term are not up to date with {node_id} idx: {:?}, term: {:?}, {:?} ",
+                        "prev_log_index and prev_log_term outdated {node_id} idx: {:?}, term: {:?}, {:?} ",
                         previous_log_index, previous_log_term, state,
                     );
 
@@ -156,14 +180,13 @@ pub fn handle_conn(
                     state.previous_log_index = entry.index;
                     state.previous_log_term = entry.term;
                     state.entries.push(entry);
-                    println!("updated entries {:?}\n", state.entries)
                 } else {
                     println!("no provided entry from {node_id}");
                 }
 
                 // check here if we need to persist
                 if state.commit_index < commit_index {
-                    let latest_commit = state.persist_till(commit_index);
+                    let latest_commit = state.persist_till(commit_index)?;
                     println!("stopped commit at {latest_commit}");
                     state.commit_index = latest_commit;
                 }

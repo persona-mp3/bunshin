@@ -1,5 +1,5 @@
-use std::net::TcpListener;
 use bunshin::{State, handle_conn};
+use std::net::TcpListener;
 
 struct Node {
     id: u32,
@@ -8,7 +8,7 @@ struct Node {
 
 impl Node {
     fn new(id: u32) -> Node {
-        let state = State::default();
+        let state = State::default(id);
         Node { id, state }
     }
 }

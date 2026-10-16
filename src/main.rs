@@ -15,14 +15,15 @@ impl Node {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    if args.len() < 2 {
-        eprintln!("please provide id for node");
+    if args.len() < 3 {
+        eprintln!("Usage: bushin [addr] [node-id]\n Example\n\t bushin localhost:1738 3");
         return;
     }
 
-    let node_id: u32 = args[1].trim().parse().unwrap();
+    let addr = args[1].trim();
+    let node_id: u32 = args[2].trim().parse().unwrap();
 
-    let listener = TcpListener::bind("127.0.0.1:1738").unwrap();
+    let listener = TcpListener::bind(addr).unwrap();
     let mut node = Node::new(node_id);
     println!(
         "initialising node with id {}, and server listening on localhost:1738",

@@ -29,3 +29,14 @@
 // We currently store all data in RAM, while the program is running. When we quit
 // it, all data is lost. But we might not need all the values to be saved yet, 
 // all to a certain extent. or the whole log
+//
+// Good
+// Now, we need to make our test harness a little bit better, and work on the interface
+// of the project. The first thing we need is to be able to invoke your project with 
+// - address it should listen on 
+// - id 
+//
+// we need the id because we're going to eventually run more nodes and they'll
+// need to communicate with each other. Not only that our test harness needs to be
+// able to run our program and connect with them too
+//

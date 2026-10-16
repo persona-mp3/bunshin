@@ -16,8 +16,9 @@ const (
 )
 
 type Command struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
+	Key       string `json:"key"`
+	Value     string `json:"value"`
+	Operation string `json:"operation"`
 }
 
 type Entry struct {
@@ -29,7 +30,7 @@ type AppendEntry struct {
 	Id               uint32 `json:"id"`
 	PreviousLogIndex uint32 `json:"previous_log_index"`
 	PreviousLogTerm  uint32 `json:"previous_log_term"`
-	Entry            Entry  `json:"entry,omitempty"`
+	Entry            *Entry `json:"entry,omitzero"`
 	CommitIndex      uint32 `json:"commit_index"`
 	Success          bool   `json:"success"`
 }
@@ -39,7 +40,7 @@ type RPC struct {
 	AppendEntry
 }
 
-// TODO: we need to be able to pass flags here to specify what kind of 
+// TODO: we need to be able to pass flags here to specify what kind of
 // tests we want to run for example
 //
 // tester 1738 3 --type commands -> will send out bunch of commands to the node
@@ -115,7 +116,7 @@ func sendEntries(nodeId uint32, encoder *json.Encoder, decoder *json.Decoder) {
 		Id:               1000,
 		PreviousLogIndex: 0,
 		PreviousLogTerm:  0,
-		Entry:            Entry{Index: 0, Term: 0, Command: Command{Key: "init", Value: "init"}},
+		Entry:            &Entry{Index: 0, Term: 0, Command: Command{Key: "init", Value: "init", Operation: "set"}},
 	}
 
 	rpcReq := RPC{
@@ -132,21 +133,27 @@ func sendEntries(nodeId uint32, encoder *json.Encoder, decoder *json.Decoder) {
 			Id:               1000,
 			PreviousLogIndex: 0,
 			PreviousLogTerm:  0,
-			Entry:            Entry{Index: 1, Term: 1, Command: Command{Key: "first_entry", Value: "second_value"}},
+			Entry:            &Entry{Index: 1, Term: 1, Command: Command{Key: "first_entry", Value: "second_value", Operation: "set"}},
 		},
 
 		{
 			Id:               1000,
 			PreviousLogIndex: 1,
 			PreviousLogTerm:  1,
-			Entry:            Entry{Index: 2, Term: 1, Command: Command{Key: "second_entry_key", Value: "second_entry_value"}},
+			Entry:            &Entry{Index: 2, Term: 1, Command: Command{Key: "second_entry_key", Value: "second_entry_value", Operation: "set"}},
 		},
 
 		{
 			Id:               1000,
 			PreviousLogIndex: 2,
 			PreviousLogTerm:  1,
-			Entry:            Entry{Index: 3, Term: 1, Command: Command{Key: "third_entry_key", Value: "third_entry_value"}},
+			Entry:            nil,
+		},
+		{
+			Id:               1000,
+			PreviousLogIndex: 2,
+			PreviousLogTerm:  1,
+			Entry:            &Entry{Index: 3, Term: 1, Command: Command{Key: "third_entry_key", Value: "third_entry_value", Operation: "set"}},
 		},
 	}
 
@@ -168,6 +175,12 @@ func sendEntries(nodeId uint32, encoder *json.Encoder, decoder *json.Decoder) {
 		{
 			Id:               nodeId,
 			PreviousLogIndex: 1,
+			PreviousLogTerm:  1,
+			Success:          true,
+		},
+		{
+			Id:               nodeId,
+			PreviousLogIndex: 2,
 			PreviousLogTerm:  1,
 			Success:          true,
 		},
@@ -214,6 +227,7 @@ func sendCommitIndex(nodeId uint32, prevLogIndex, prevLogTerm uint32, encoder *j
 		PreviousLogIndex: prevLogIndex,
 		PreviousLogTerm:  prevLogTerm,
 		CommitIndex:      expectedCommitIndex,
+		Entry:            nil,
 	}
 
 	rpcReq := RPC{"append_entry", commitReq}

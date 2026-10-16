@@ -15,8 +15,6 @@ pub struct Entry {
 pub struct Command {
     pub key: String,
     pub value: String,
-    // TODO: why
-    #[serde(default = "default_operation")]
     pub operation: String,
 }
 
@@ -116,6 +114,9 @@ impl State {
     fn has_key(&self, key: &String) -> Option<Command> {
         for entry in self.entries.iter().rev() {
             if entry.command.key == *key {
+                if entry.command.operation == "rm" {
+                    return None;
+                }
                 return Some(entry.command.clone());
             };
         }
@@ -158,7 +159,7 @@ pub fn handle_conn(
 
         match rpc_msg {
             RPC::AppendEntry {
-                id: _,
+                id,
                 previous_log_index,
                 previous_log_term,
                 entry,
@@ -214,14 +215,11 @@ pub fn handle_conn(
                     state.previous_log_index = entry.index;
                     state.previous_log_term = entry.term;
                     state.entries.push(entry);
-                } else {
-                    println!("no provided entry from {node_id}");
                 }
 
                 // check here if we need to persist
                 if state.commit_index < commit_index {
                     let latest_commit = state.persist_till(commit_index)?;
-                    println!("stopped commit at {latest_commit}");
                     state.commit_index = latest_commit;
                 }
 
@@ -241,67 +239,7 @@ pub fn handle_conn(
             }
 
             RPC::Command(command) => {
-                let mut reply = CommandReply {
-                    success: true,
-                    value: "".to_string(),
-                };
-
-                // since get is 'read', the last operation must not be a 'rm', otherwise it doesn't exist
-                match command.operation.as_str() {
-                    "get" => match state.has_key(&command.key) {
-                        Some(stored_entry) => {
-                            if stored_entry.operation == "rm" {
-                                reply.success = false;
-                                reply.value = "not_found".to_string();
-                            } else if stored_entry.operation == "set " {
-                                reply.success = true;
-                                reply.value = stored_entry.value;
-                            } else {
-                                panic!(
-                                    "last_operation was neither set or rm
-                                        {:?},",
-                                    &stored_entry
-                                )
-                            }
-                        }
-                        None => {
-                            reply.success = false;
-                            reply.value = "not_found".to_string();
-                        }
-                    },
-
-                    "rm" => match state.has_key(&command.key) {
-                        Some(stored_entry) => {
-                            if stored_entry.operation != "rm" {
-                                state.append_new_entry(&command);
-                                reply.value = stored_entry.value;
-                                println!(
-                                    "[rm_request] last_operation: {:?} for key: {:?}",
-                                    stored_entry.operation, stored_entry.key,
-                                );
-                            } else if stored_entry.operation == "rm" {
-                                reply.success = false;
-                                reply.value = "not_found".to_string();
-                            }
-                        }
-                        None => {
-                            reply.success = false;
-                            reply.value = "not_found".to_string();
-                        }
-                    },
-
-                    "set" => {
-                        let new_entry = state.append_new_entry(&command);
-                        reply.value = command.value;
-                        println!("new entry: {:?}", new_entry)
-                    }
-
-                    &_ => {
-                        reply.success = false;
-                        reply.value = format!("unknown operation '{:?}'", command.operation);
-                        println!("invalid request receieved: {:?}", command)
-                    }
-                }
+                let reply = handle_command_rpc(state, &command);
 
                 serde_json::to_writer(&mut writer, &reply)?;
                 writer.write_all(b"\n")?;
@@ -313,10 +251,55 @@ pub fn handle_conn(
     Ok(())
 }
 
-fn default_commit_index() -> u32 {
-    0
+fn handle_command_rpc(state: &mut State, command: &Command) -> CommandReply {
+    let entry_exists = state.has_key(&command.key);
+
+    match command.operation.as_str() {
+        // we just place it in there regardless
+        "set" => {
+            state.append_new_entry(&command);
+            println!("recvd set request for {:?}", command);
+            return CommandReply {
+                success: true,
+                value: command.value.to_string(),
+            };
+        }
+
+        "rm" => {
+            // check if we have that value
+            match entry_exists {
+                None => (),
+                Some(entry) => {
+                    state.append_new_entry(&command);
+                    return CommandReply {
+                        success: true,
+                        value: entry.value,
+                    };
+                }
+            }
+        }
+        "get" => {
+            // check
+            match entry_exists {
+                None => (),
+                Some(entry) => {
+                    return CommandReply {
+                        success: true,
+                        value: entry.value,
+                    };
+                }
+            }
+        }
+        &_ => {
+            panic!("unexpected operation from command: {:?}", command)
+        }
+    }
+    CommandReply {
+        value: "not_found".to_string(),
+        success: false,
+    }
 }
 
-fn default_operation() -> String {
-    "error_invalid".to_string()
+fn default_commit_index() -> u32 {
+    0
 }

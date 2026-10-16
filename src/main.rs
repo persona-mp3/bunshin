@@ -25,10 +25,7 @@ fn main() {
 
     let listener = TcpListener::bind(addr).unwrap();
     let mut node = Node::new(node_id);
-    println!(
-        "initialising node with id {}, and server listening on localhost:1738",
-        node.id
-    );
+    println!( "initialising node with id {}, listening on {}", node.id, addr);
     for stream in listener.incoming() {
         match stream {
             Ok(conn) => {

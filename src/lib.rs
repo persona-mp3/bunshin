@@ -159,7 +159,7 @@ pub fn handle_conn(
 
         match rpc_msg {
             RPC::AppendEntry {
-                id,
+                id: _,
                 previous_log_index,
                 previous_log_term,
                 entry,
@@ -257,7 +257,7 @@ fn handle_command_rpc(state: &mut State, command: &Command) -> CommandReply {
     match command.operation.as_str() {
         // we just place it in there regardless
         "set" => {
-            state.append_new_entry(&command);
+            state.append_new_entry(command);
             println!("recvd set request for {:?}", command);
             return CommandReply {
                 success: true,
@@ -270,7 +270,7 @@ fn handle_command_rpc(state: &mut State, command: &Command) -> CommandReply {
             match entry_exists {
                 None => (),
                 Some(entry) => {
-                    state.append_new_entry(&command);
+                    state.append_new_entry(command);
                     return CommandReply {
                         success: true,
                         value: entry.value,

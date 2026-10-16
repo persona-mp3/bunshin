@@ -212,5 +212,5 @@ pub fn handle_conn(
 }
 
 fn default_commit_index() -> u32 {
-    return 0;
+    0
 }

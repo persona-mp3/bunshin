@@ -30,6 +30,7 @@ type AppendEntry struct {
 	PreviousLogIndex uint32 `json:"previous_log_index"`
 	PreviousLogTerm  uint32 `json:"previous_log_term"`
 	Entry            Entry  `json:"entry,omitempty"`
+	CommitIndex      uint32 `json:"commit_index"`
 	Success          bool   `json:"success"`
 }
 
@@ -196,6 +197,37 @@ func sendEntries(nodeId uint32, encoder *json.Encoder, decoder *json.Decoder) {
 		passCount += 1
 	}
 
-	fmt.Printf("\n%spassed: %d%s  %sfailed: %d%s\n", green, passCount, reset, red, failedCount, reset)
+	fmt.Printf("\n%ssendCommitEntries [passed]: %d%s  %sfailed: %d%s\n", green, passCount, reset, red, failedCount, reset)
 
+	prevLog := expectedReplies[len(expectedReplies)-1]
+	sendCommitIndex(nodeId, prevLog.PreviousLogIndex, prevLog.PreviousLogTerm, encoder, decoder)
+
+}
+
+func sendCommitIndex(nodeId uint32, prevLogIndex, prevLogTerm uint32, encoder *json.Encoder, decoder *json.Decoder) {
+	expectedCommitIndex := prevLogIndex - 1
+	commitReq := AppendEntry{
+		Id:               1000,
+		PreviousLogIndex: prevLogIndex,
+		PreviousLogTerm:  prevLogTerm,
+		CommitIndex:      expectedCommitIndex,
+	}
+
+	rpcReq := RPC{"append_entry", commitReq}
+
+	if err := encoder.Encode(rpcReq); err != nil {
+		log.Fatal("failed to encode commitRequest", err)
+	}
+
+	reply := AppendEntry{}
+	if err := decoder.Decode(&reply); err != nil {
+		log.Fatal("failed to decode commitReply", err)
+	}
+	if reply.CommitIndex != expectedCommitIndex {
+		fmt.Printf("\n\n%s sendCommitIndex  [failed] expected commitIndex to match %d%s. Got %+v\n",
+			red, expectedCommitIndex, reset, reply)
+		os.Exit(1)
+	}
+
+	fmt.Printf("\n%ssendCommitIndex [passed]  %s\n", green, reset)
 }

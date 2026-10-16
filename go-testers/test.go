@@ -1,0 +1,179 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"log"
+	"net"
+	"os"
+	"strconv"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
+
+type Command struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+type Entry struct {
+	Index   uint32  `json:"index"`
+	Term    uint32  `json:"term"`
+	Command Command `json:"command"`
+}
+type AppendEntry struct {
+	Id               uint32 `json:"id"`
+	PreviousLogIndex uint32 `json:"previous_log_index"`
+	PreviousLogTerm  uint32 `json:"previous_log_term"`
+	Entry            Entry  `json:"entry,omitempty"`
+	Success          bool   `json:"success"`
+}
+
+type RPC struct {
+	Type string `json:"type"`
+	AppendEntry
+}
+
+// tests we're going to run now
+// 1. Upon init, it should return false, with logIndex and term as 0
+// 2. after sending the first one, all incoming requests should send a new
+// entry and a correct prevLogIndex and term
+
+func main() {
+	if len(os.Args) < 3 {
+		log.Fatal("please provide port project is listening on and it's id")
+	}
+
+	port := os.Args[1]
+	nodeId, err := strconv.ParseUint(os.Args[2], 10, 32)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	conn, err := net.Dial("tcp", fmt.Sprintf("localhost:%s", port))
+	encoder := json.NewEncoder(conn)
+	decoder := json.NewDecoder(conn)
+	if err != nil {
+		log.Fatalf("failed to dial localhost:%s. reason: %s\n", os.Args[1], err)
+	}
+
+	runInitTest(uint32(nodeId), encoder, decoder)
+	sendEntries(uint32(nodeId), encoder, decoder)
+}
+
+func runInitTest(nodeId uint32, encoder *json.Encoder, decoder *json.Decoder) {
+	// first send high logIndexes to test it starts correctly
+	initReq := AppendEntry{
+		Id:               10_000,
+		PreviousLogIndex: 10_000,
+		PreviousLogTerm:  10_000,
+	}
+
+	initRPC := RPC{
+		"append_entry",
+		initReq,
+	}
+
+	initReply := AppendEntry{}
+
+	expectedInitReply := RPC{
+		Type: "append_entry",
+		AppendEntry: AppendEntry{
+			Id:      nodeId,
+			Success: false,
+		},
+	}
+
+	_ = expectedInitReply
+
+	if err := encoder.Encode(&initRPC); err != nil {
+		log.Fatal("runInitTest failed while encoding: reason", err)
+	}
+
+	if err := decoder.Decode(&initReply); err != nil {
+		log.Fatal("runInitTest failed while decoding: reason", err)
+	}
+
+	fmt.Printf("initReply: %+v\n", initReply)
+}
+
+// now we can now can now send more entries
+func sendEntries(nodeId uint32, encoder *json.Encoder, decoder *json.Decoder) {
+	e := AppendEntry{
+		Id:               1000,
+		PreviousLogIndex: 0,
+		PreviousLogTerm:  0,
+		Entry:            Entry{Index: 0, Term: 0, Command: Command{Key: "init", Value: "init"}},
+	}
+
+	rpcReq := RPC{
+		"append_entry",
+		e,
+	}
+
+	// send init request to initialise 0th position
+	encoder.Encode(rpcReq)
+	decoder.Decode(AppendEntry{})
+
+	outgoingEntries := []AppendEntry{
+		{
+			Id:               1000,
+			PreviousLogIndex: 0,
+			PreviousLogTerm:  0,
+			Entry:            Entry{Index: 1, Term: 1, Command: Command{Key: "first_entry", Value: "second_value"}},
+		},
+
+		{
+			Id:               1000,
+			PreviousLogIndex: 1,
+			PreviousLogTerm:  1,
+			Entry:            Entry{Index: 2, Term: 1, Command: Command{Key: "second_entry_key", Value: "second_entry_value"}},
+		},
+
+		{
+			Id:               1000,
+			PreviousLogIndex: 2,
+			PreviousLogTerm:  1,
+			Entry:            Entry{Index: 3, Term: 1, Command: Command{Key: "third_entry_key", Value: "third_entry_value"}},
+		},
+	}
+
+	incomingReplies := []AppendEntry{}
+	for _, req := range outgoingEntries {
+		rpcReq.AppendEntry = req
+		if err := encoder.Encode(rpcReq); err != nil {
+			log.Fatalf("failed while sending: %+v\n reason: %s\n", rpcReq, err)
+		}
+
+		reply := AppendEntry{}
+		if err := decoder.Decode(&reply); err != nil {
+			log.Fatalf("failed while decoding: %+v\n reason: %s\n", rpcReq, err)
+		}
+		incomingReplies = append(incomingReplies, reply)
+	}
+
+	expectedReplies := []AppendEntry{
+		{
+			Id:               nodeId,
+			PreviousLogIndex: 1,
+			PreviousLogTerm:  1,
+			Success:          true,
+		},
+		{
+			Id:               nodeId,
+			PreviousLogIndex: 2,
+			PreviousLogTerm:  1,
+			Success:          true,
+		},
+		{
+			Id:               nodeId,
+			PreviousLogIndex: 3,
+			PreviousLogTerm:  1,
+			Success:          true,
+		},
+	}
+
+	assert.Equal(&testing.T{}, incomingReplies, expectedReplies)
+
+}

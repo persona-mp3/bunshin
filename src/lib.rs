@@ -40,15 +40,21 @@ enum RPC {
     Command(Command),
 }
 
+#[derive(Debug, Clone)]
+pub struct Config {
+    pub peers: Vec<String>,
+}
+
 #[derive(Debug)]
 pub struct State {
     pub id: u32,
     pub previous_log_index: u32,
     pub previous_log_term: u32,
     pub entries: Vec<Entry>,
-    pub file: Option<File>,
     commit_index: u32,
     file_name: String,
+
+    pub config: Option<Config>,
 }
 
 impl State {
@@ -63,10 +69,16 @@ impl State {
             commit_index: 0,
             previous_log_index,
             previous_log_term,
+            config: None,
             entries,
-            file: None,
             file_name,
         }
+    }
+
+    pub fn new(id: u32, config: Option<Config>) -> State {
+        let mut default_state = State::default(id);
+        default_state.config = config;
+        default_state
     }
 
     /// persist_till flushes logs to `self.file` starting from `self.commit` up

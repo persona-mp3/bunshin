@@ -1,49 +1,87 @@
 use bunshin::{State, handle_conn};
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use std::net::TcpListener;
+use std::thread;
 
 struct Node {
     id: u32,
     state: State,
+    addr: String,
+    peers: Option<Vec<String>>,
 }
 
 impl Node {
-    fn new(id: u32) -> Node {
+    fn new(id: u32, port: usize) -> Node {
         let state = State::default(id);
-        Node { id, state }
+        let addr = format!("localhost:{}", port.to_string());
+        Node {
+            id,
+            state,
+            addr,
+            peers: None,
+        }
+    }
+
+    fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let listener = TcpListener::bind(&self.addr)?;
+        println!(
+            "initialising node with id {}, listening on {}",
+            self.id, self.addr
+        );
+
+        if let Some(_peers) = &self.peers {
+            println!("attempting connection to peers");
+            if let Err(err) = self.connect_to_peers() {
+                println!(
+                    "[warning] failed to connect to peers on initialisation: {}",
+                    err
+                );
+            };
+        }
+
+        for stream in listener.incoming() {
+            match stream {
+                Ok(conn) => {
+                    let _ = handle_conn(self.id, conn, &mut self.state);
+                }
+                Err(err) => {
+                    println!("error accepting connectoin: {:?}", err)
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn connect_to_peers(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let peers = self.peers.clone().unwrap_or_default();
+        thread::spawn(move || {
+            println!("peers to connect-to {:?}", peers);
+        });
+
+        Ok(())
     }
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug, Clone)]
 #[command(author, version, about)]
 struct Cli {
     #[arg(short, long)]
-    addr: String,
+    port: usize,
 
     #[arg(short, long)]
     node_id: u32,
+
+    #[arg(long, value_delimiter = ',')]
+    peers: Option<Vec<String>>,
 }
 
 fn main() {
     let args = Cli::parse();
-
-    let addr = args.addr.trim();
-
-    let listener = TcpListener::bind(args.addr.trim()).unwrap();
-    let mut node = Node::new(args.node_id);
-
-    println!(
-        "initialising node with id {}, listening on {}",
-        node.id, addr
-    );
-    for stream in listener.incoming() {
-        match stream {
-            Ok(conn) => {
-                let _ = handle_conn(args.node_id, conn, &mut node.state);
-            }
-            Err(err) => {
-                println!("error accepting connectoin: {:?}", err)
-            }
-        }
-    }
+    let mut node = Node::new(args.node_id, args.port);
+    node.peers = args.peers;
+    match node.run() {
+        Err(err) => eprintln!("could not start node {}. reason: {}", node.id, err),
+        Ok(_) => {}
+    };
 }

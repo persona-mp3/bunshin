@@ -13,7 +13,7 @@ struct Node {
 impl Node {
     fn new(id: u32, port: usize) -> Node {
         let state = State::default(id);
-        let addr = format!("localhost:{}", port.to_string());
+        let addr = format!("localhost:{}", port);
         Node {
             id,
             state,
@@ -85,8 +85,7 @@ fn main() {
     let args = Cli::parse();
     let mut node = Node::new(args.node_id, args.port);
     node.peers = args.peers;
-    match node.run() {
-        Err(err) => eprintln!("could not start node {}. reason: {}", node.id, err),
-        Ok(_) => {}
+    if let Err(err) = node.run() {
+        eprintln!("could not start node {}. reason: {}", node.id, err)
     };
 }

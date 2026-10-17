@@ -23,9 +23,7 @@ pub fn check_log_consistency(state: &State, prev_log_index: u32, prev_log_term: 
 pub fn verify_leader(current_leader: i32, req_id: i32) -> bool {
     if current_leader == -1 {
         true
-    } else if current_leader != req_id {
-        false
     } else {
-        true
+        current_leader == req_id
     }
 }

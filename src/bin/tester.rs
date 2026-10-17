@@ -47,8 +47,7 @@ fn test_leader_recognition(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let request = bunshin::AppendEntry::new(TEST_ID);
     let rpc_request = bunshin::RPC::AppendEntry(request.clone());
-    // let json = serde_json::to_string(&rpc_request)?;
-    // we simply want to reborrow the underlying write stream??
+    // QUESTION: we simply want to reborrow the underlying write stream??
     serde_json::to_writer(&mut *writer, &rpc_request)?;
     writer.write_all(b"\n")?;
     writer.flush()?;

@@ -47,8 +47,3 @@ fn main() {
         }
     }
 }
-
-// enum Args {
-//     Nodes { count: u32, addrs: Vec<String> },
-// }
-// }

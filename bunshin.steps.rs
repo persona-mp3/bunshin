@@ -33,14 +33,14 @@
 //
 // Why?
 // We currently store all data in RAM, while the program is running. When we quit
-// it, all data is lost. But we might not need all the values to be saved yet, 
+// it, all data is lost. But we might not need all the values to be saved yet,
 // all to a certain extent. or the whole log
 //
 // Good
 // Now, we need to make our test harness a little bit better, and work on the interface
-// of the project. The first thing we need is to be able to invoke your project with 
-// - address it should listen on 
-// - id 
+// of the project. The first thing we need is to be able to invoke your project with
+// - address it should listen on
+// - id
 //
 // we need the id because we're going to eventually run more nodes and they'll
 // need to communicate with each other. Not only that our test harness needs to be
@@ -70,9 +70,20 @@
 // value: ""|"some_value_for_key"
 // success: true
 //
-//
+// -------------------------------------------
+// Task 4
+// -------------------------------------------
 // We're doing some infra stuff now
-// program --nodes 3 --addrs 3001, 3002, 3003
-// program --spawn 3 --addrs
+// program-infra --nodes 3 --addrs 3001, 3002, 3003
+// program-infra --stop 1 // will stop the node at 3002
 //
-// TODO: a node should be able to revive to its previous state
+// -------------------------------------------
+// Task 5
+// -------------------------------------------
+// And  should be able to know who it's peers are. You can provided this
+// via cli args too
+// program --addr 3001 --node-id 3 --peers 3002,3003
+// program --addr 3002 --node-id 3 --peers 3001,3003
+// program --addr 3003 --node-id 3 --peers 3001,3002
+//
+// For now, each node should print who their peers are to stdout

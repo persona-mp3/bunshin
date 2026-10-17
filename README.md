@@ -29,31 +29,29 @@ If you want to specify peers directly to bunshin
 
 
 ### 3. To  run a cluster
-Build and run the binaries. To directly run a single instance run the bunshin binary
+Build and run the binaries. To directly create a cluster, run the infra binary
 ```bash
 cargo build
 cp ./target/debug/infra .
 ```
 
-If you want to specify peers directly to bunshin
-This will run three nodes on the provided ports
+Specify the ports each will listen on
 ```bash
 ./infra --nodes 3001,3002,3003 
 ```
 
-To stop each one, run the following commands
+To stop the whole cluster
+```bash
+./infra stop-all
+```
+
+To target a specific one, use the 0 based index If unsure, there's an `infra-config.json` that will be created in the current 
 ```bash
 ./infra stop 0 
 ./infra stop 1
 ./infra stop 2
 ```
 
-To kill all at once
-```bash
-./infra stop-all
-```
-
-If unsure, there's an `infra-config.json` that will be created in the current 
 directory and it would look something like this
 ```json
 {
@@ -72,5 +70,5 @@ directory and it would look something like this
     "process_id": 1479101,
     "listen_addr": "3001"
   }
-}⏎                                
+}                                
 ```

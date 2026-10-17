@@ -137,7 +137,7 @@ fn run_network(addrs: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 
     for (idx, item) in peers.iter().enumerate() {
         let mut command = Command::new("./bunshin");
-        let (port, peers) = item.clone();
+        let (port, peers) = item;
 
         command
             .arg("--node-id")

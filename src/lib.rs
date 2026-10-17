@@ -6,7 +6,7 @@ use std::net::TcpStream;
 mod core;
 use core::check_log_consistency;
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq)]
 pub struct Entry {
     pub index: u32,
     pub term: u32,
@@ -14,7 +14,7 @@ pub struct Entry {
 }
 
 /// Commands are sent by external clients
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq)]
 pub struct Command {
     pub key: String,
     pub value: String,
@@ -27,16 +27,16 @@ pub struct CommandReply {
     success: bool,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct AppendEntry {
-    id: u32,
-    previous_log_index: u32,
-    previous_log_term: u32,
+#[derive(Debug, Deserialize, Serialize, Eq, PartialEq)]
+pub struct AppendEntry {
+    pub id: u32,
+    pub previous_log_index: u32,
+    pub previous_log_term: u32,
     #[serde(default = "default_commit_index")]
-    commit_index: u32,
-    entry: Option<Entry>,
-    success: bool,
-    info: Option<String>,
+    pub commit_index: u32,
+    pub entry: Option<Entry>,
+    pub success: bool,
+    pub info: Option<String>,
 }
 
 impl AppendEntry {
@@ -94,7 +94,7 @@ impl AppendEntry {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-enum RPC {
+pub enum RPC {
     AppendEntry(AppendEntry),
 
     Command(Command),

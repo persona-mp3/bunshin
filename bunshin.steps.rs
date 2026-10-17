@@ -103,6 +103,30 @@
 // make an AppendEntry{} RPC as the leader. If it already has a leader and the AppendEntry
 // RPC came from another node in the network it should reject it.
 //
-// Addittionaly, update the AppendEntry to have a "reason" field, as it can help 
-// identify or pinpoint reasons for a failure 
+// Addittionaly, update the AppendEntry to have a "reason" field, as it can help
+// identify or pinpoint reasons for a failure
 // ie logs are out of sync, or invalid_leader
+//
+//
+//
+// -------------------------------------------
+// Task 7
+// -------------------------------------------
+// Timers. Now, we're going to spike things up a bit.
+// Now, your node simply waits for a leader. What if a leader never shows up?
+// It just stays there. If you've never heard of state machines, this is were
+// you're going to first encounter them.  State machines represent the state
+// of anything. For example the states of a programmer might be confusion, pain
+// and pleasing-the-borrow-checker. We're going to take those states from the
+// raft paper and start applying them.
+//
+// Right now, when your node starts, it is the `Follower` state.
+// The first node in a network to send it a request, (and the logs are up to date, check Task 1)
+// the sender node is in a `Leader` state.  and your node, `Follower` has recognized it
+//
+// You'll have to encode those variants inside your code somehow
+// Now if the Leader current goes offline, your node is stuckk there. Modify your code
+// such that, after a set timeout of 2s. It goes to a `Candidate` state. And then
+// print `currently in a candidate-state`
+//
+// Next after this is concurrency

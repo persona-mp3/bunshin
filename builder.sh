@@ -2,7 +2,7 @@
 set -e
 cargo build
 
-rm ./infra ./bunshin ./tester
+rm ./infra ./bunshin ./tester || true
 
 
 cp -v ./target/debug/infra .

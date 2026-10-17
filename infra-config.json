@@ -1,1 +1,17 @@
-{}
+{
+  "0": {
+    "idx": 0,
+    "process_id": 1406935,
+    "listen_addr": "localhost:3000"
+  },
+  "1": {
+    "idx": 1,
+    "process_id": 1406936,
+    "listen_addr": "localhost:4000"
+  },
+  "2": {
+    "idx": 2,
+    "process_id": 1406937,
+    "listen_addr": "localhost:5000"
+  }
+}

@@ -1,3 +1,5 @@
 target/
 go-testers/testers
 node-*.json
+bunshin
+infra

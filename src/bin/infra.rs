@@ -40,9 +40,7 @@ fn main() {
 
     let result = match args.cmd {
         Some(Operations::Stop { idx }) => stop_bunshin(idx),
-        Some(Operations::StopAll) => {
-            stop_all()
-        }
+        Some(Operations::StopAll) => stop_all(),
         None => {
             if args.nodes.is_empty() {
                 Cli::command()
@@ -139,7 +137,7 @@ fn run_network(addrs: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 
     for (idx, item) in peers.iter().enumerate() {
         let mut command = Command::new("./bunshin");
-        let (port, peers) = item.clone();
+        let (port, peers) = item;
 
         command
             .arg("--node-id")

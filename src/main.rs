@@ -13,7 +13,7 @@ struct Node {
 impl Node {
     fn new(id: u32, port: usize) -> Node {
         let state = State::default(id);
-        let addr = format!("localhost:{}", port.to_string());
+        let addr = format!("localhost:{}", port);
         Node {
             id,
             state,
@@ -29,8 +29,13 @@ impl Node {
             self.id, self.addr
         );
 
-        if let Some(_peers) = &self.peers {
+        if let Some(peers) = &self.peers {
+            // update the inner state with peers
+            self.state.config = Some(bunshin::Config {
+                peers: peers.clone(),
+            });
             println!("attempting connection to peers");
+
             if let Err(err) = self.connect_to_peers() {
                 println!(
                     "[warning] failed to connect to peers on initialisation: {}",
@@ -42,7 +47,7 @@ impl Node {
         for stream in listener.incoming() {
             match stream {
                 Ok(conn) => {
-                    let _ = handle_conn(self.id, conn, &mut self.state);
+                    let _ = handle_conn(conn, &mut self.state);
                 }
                 Err(err) => {
                     println!("error accepting connectoin: {:?}", err)
@@ -80,8 +85,7 @@ fn main() {
     let args = Cli::parse();
     let mut node = Node::new(args.node_id, args.port);
     node.peers = args.peers;
-    match node.run() {
-        Err(err) => eprintln!("could not start node {}. reason: {}", node.id, err),
-        Ok(_) => {}
+    if let Err(err) = node.run() {
+        eprintln!("could not start node {}. reason: {}", node.id, err)
     };
 }

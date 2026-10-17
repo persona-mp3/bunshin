@@ -72,3 +72,14 @@ directory and it would look something like this
   }
 }                                
 ```
+
+Note: You can also skip the auto copy simply by running the build.sh file 
+
+## Tests
+End to end tests are coded inside the `tester` crate. To test, you need to first 
+run a node, and provide the same arguments to tester. After running a build 
+the  binary `tester` is created. 
+
+```bash
+./tester --node-id <id_of_node_running> --port <port_node_is_listening>
+```

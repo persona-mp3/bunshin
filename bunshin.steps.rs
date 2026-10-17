@@ -87,3 +87,22 @@
 // program --addr 3003 --node-id 3 --peers 3001,3002
 //
 // For now, each node should print who their peers are to stdout
+//
+//
+//
+// -------------------------------------------
+// Task 6
+// -------------------------------------------
+// The next thing to do is become more indepth with the protocol, assuming
+// your test harness still runs.
+// Right now, your node accepts requests from any node, and since this is esp for
+// a database, data will be corrupted. We need to verify that the request came
+// from a trusted person. Right now, your node should have a place to store
+// a 'leader'. This leader will come from within the network(peers).
+// If the node doesn't have a leader yet, it acknowledges the first person to
+// make an AppendEntry{} RPC as the leader. If it already has a leader and the AppendEntry
+// RPC came from another node in the network it should reject it.
+//
+// Addittionaly, update the AppendEntry to have a "reason" field, as it can help 
+// identify or pinpoint reasons for a failure 
+// ie logs are out of sync, or invalid_leader

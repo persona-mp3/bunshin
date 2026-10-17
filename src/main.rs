@@ -1,4 +1,5 @@
 use bunshin::{State, handle_conn};
+use clap::{Parser, Subcommand};
 use std::net::TcpListener;
 
 struct Node {
@@ -13,18 +14,24 @@ impl Node {
     }
 }
 
+#[derive(Parser)]
+#[command(author, version, about)]
+struct Cli {
+    #[arg(short, long)]
+    addr: String,
+
+    #[arg(short, long)]
+    node_id: u32,
+}
+
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() < 3 {
-        eprintln!("Usage: bushin [addr] [node-id]\n Example\n\t bushin localhost:1738 3");
-        return;
-    }
+    let args = Cli::parse();
 
-    let addr = args[1].trim();
-    let node_id: u32 = args[2].trim().parse().unwrap();
+    let addr = args.addr.trim();
 
-    let listener = TcpListener::bind(addr).unwrap();
-    let mut node = Node::new(node_id);
+    let listener = TcpListener::bind(args.addr.trim()).unwrap();
+    let mut node = Node::new(args.node_id);
+
     println!(
         "initialising node with id {}, listening on {}",
         node.id, addr
@@ -32,7 +39,7 @@ fn main() {
     for stream in listener.incoming() {
         match stream {
             Ok(conn) => {
-                let _ = handle_conn(node_id, conn, &mut node.state);
+                let _ = handle_conn(args.node_id, conn, &mut node.state);
             }
             Err(err) => {
                 println!("error accepting connectoin: {:?}", err)
@@ -40,3 +47,8 @@ fn main() {
         }
     }
 }
+
+// enum Args {
+//     Nodes { count: u32, addrs: Vec<String> },
+// }
+// }

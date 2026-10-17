@@ -71,4 +71,8 @@
 // success: true
 //
 //
+// We're doing some infra stuff now
+// program --nodes 3 --addrs 3001, 3002, 3003
+// program --spawn 3 --addrs
+//
 // TODO: a node should be able to revive to its previous state

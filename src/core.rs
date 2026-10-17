@@ -1,10 +1,3 @@
-// use bunshin::{};
-// fn check_log_consistency(
-//     state: &State
-//     ) -> bool {
-//     true
-// }
-
 use crate::State;
 
 pub fn check_log_consistency(state: &State, prev_log_index: u32, prev_log_term: u32) -> bool {

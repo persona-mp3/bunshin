@@ -40,9 +40,7 @@ fn main() {
 
     let result = match args.cmd {
         Some(Operations::Stop { idx }) => stop_bunshin(idx),
-        Some(Operations::StopAll) => {
-            stop_all()
-        }
+        Some(Operations::StopAll) => stop_all(),
         None => {
             if args.nodes.is_empty() {
                 Cli::command()

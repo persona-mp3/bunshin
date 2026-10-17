@@ -63,7 +63,7 @@ impl AppendEntry {
         }
 
         let logs_match =
-            check_log_consistency(&state, self.previous_log_index, self.previous_log_term);
+            check_log_consistency(state, self.previous_log_index, self.previous_log_term);
 
         if !logs_match {
             default_reply.info = Some("logs don't match".to_string());

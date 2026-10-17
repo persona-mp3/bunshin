@@ -73,8 +73,6 @@ impl AppendEntry {
         // check if a log exists for us to append
         if let Some(new_entry) = &self.entry {
             state.append_entry(new_entry.clone());
-            // state.previous_log_index = self.previous_log_index;
-            // state.previous_log_term = self.previous_log_term;
             println!("updated_logs with {:?}", new_entry);
         } else {
             println!("empty append_entry received from leader - {}", self.id)

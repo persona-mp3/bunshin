@@ -4,6 +4,7 @@ use std::io::{BufReader, BufWriter, Write};
 use std::net::TcpStream;
 
 mod core;
+
 use core::check_log_consistency;
 
 #[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq)]
@@ -27,7 +28,7 @@ pub struct CommandReply {
     success: bool,
 }
 
-#[derive(Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Clone)]
 pub struct AppendEntry {
     pub id: u32,
     pub previous_log_index: u32,
@@ -40,7 +41,18 @@ pub struct AppendEntry {
 }
 
 impl AppendEntry {
-    fn handle(&self, state: &mut State) -> Result<AppendEntry, Box<dyn std::error::Error>> {
+    pub fn new(id: u32) -> AppendEntry {
+        AppendEntry {
+            id,
+            previous_log_index: 0,
+            previous_log_term: 0,
+            commit_index: 0,
+            entry: None,
+            success: false,
+            info: None,
+        }
+    }
+    pub fn handle(&self, state: &mut State) -> Result<AppendEntry, Box<dyn std::error::Error>> {
         let req_id = self.id as i32;
         let mut default_reply = AppendEntry {
             id: state.id,
@@ -52,15 +64,13 @@ impl AppendEntry {
             info: None,
         };
 
-        match state.current_leader {
-            -1 => state.current_leader = req_id,
-            req_id if req_id == state.current_leader => {}
-            _ => {
-                println!("unrecognized as leader");
-                default_reply.info = Some("unrecognized as leader".to_string());
-                return Ok(default_reply);
-            }
+        let legit_leader = core::verify_leader(state.current_leader, req_id);
+        if !legit_leader {
+            default_reply.info = Some("unrecognized as leader".to_string());
+            return Ok(default_reply);
         }
+
+        state.current_leader = req_id;
 
         let logs_match =
             check_log_consistency(state, self.previous_log_index, self.previous_log_term);
@@ -98,6 +108,8 @@ pub enum RPC {
     AppendEntry(AppendEntry),
 
     Command(Command),
+
+    CommandReply(CommandReply),
 }
 
 #[derive(Debug, Clone)]
@@ -238,16 +250,21 @@ pub fn handle_conn(conn: TcpStream, state: &mut State) -> Result<(), Box<dyn std
                     }
                 };
 
-                serde_json::to_writer(&mut writer, &reply)?;
+                let rpc_reply = RPC::AppendEntry(reply);
+                serde_json::to_writer(&mut writer, &rpc_reply)?;
                 writer.write_all(b"\n")?;
                 writer.flush()?;
             }
             RPC::Command(command) => {
                 let reply = handle_command_rpc(state, &command);
-
-                serde_json::to_writer(&mut writer, &reply)?;
+                let rpc_reply = RPC::CommandReply(reply);
+                serde_json::to_writer(&mut writer, &rpc_reply)?;
                 writer.write_all(b"\n")?;
                 writer.flush()?;
+            }
+
+            _ => {
+                todo!("unexpected rpc recevied: {:?}", rpc_msg);
             }
         }
     }

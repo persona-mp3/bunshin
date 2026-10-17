@@ -1,11 +1,15 @@
+use crossbeam::{
+    channel::{self, Receiver, Sender},
+    select,
+};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 use std::net::TcpStream;
+use std::thread;
+use std::time::{Duration, Instant};
 
-mod core;
-
-use core::check_log_consistency;
+pub mod core;
 
 #[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq)]
 pub struct Entry {
@@ -52,7 +56,12 @@ impl AppendEntry {
             info: None,
         }
     }
-    pub fn handle(&self, state: &mut State) -> Result<AppendEntry, Box<dyn std::error::Error>> {
+
+    pub fn handle(
+        &self,
+        state: &mut State,
+        reset_timer: &mut Sender<()>,
+    ) -> Result<AppendEntry, Box<dyn std::error::Error>> {
         let req_id = self.id as i32;
         let mut default_reply = AppendEntry {
             id: state.id,
@@ -73,7 +82,7 @@ impl AppendEntry {
         state.current_leader = req_id;
 
         let logs_match =
-            check_log_consistency(state, self.previous_log_index, self.previous_log_term);
+            core::check_log_consistency(state, self.previous_log_index, self.previous_log_term);
 
         if !logs_match {
             default_reply.info = Some("logs don't match".to_string());
@@ -97,6 +106,13 @@ impl AppendEntry {
         default_reply.previous_log_term = state.previous_log_term;
         default_reply.success = true;
         default_reply.commit_index = state.commit_index;
+
+        match reset_timer.send(()) {
+            Ok(_) => {}
+            Err(err) => {
+                println!("could not send reset_timer because it has being dropped., {err}");
+            }
+        };
 
         Ok(default_reply)
     }
@@ -129,6 +145,7 @@ pub struct State {
     file_name: String,
     // when current-leader is -1, no leader has being selected
     current_leader: i32,
+    // pub reset_timer: crossbeam::channel::Sender<()>,
 }
 
 impl State {
@@ -147,6 +164,7 @@ impl State {
             entries,
             file_name,
             current_leader: -1,
+            // reset_timer,
         }
     }
 
@@ -224,7 +242,43 @@ impl State {
     }
 }
 
-pub fn handle_conn(conn: TcpStream, state: &mut State) -> Result<(), Box<dyn std::error::Error>> {
+pub fn start_timer(timeout: Duration) -> (Sender<()>, Receiver<()>) {
+    let (timer_elapsed_sender, timer_elapsed_recv) = channel::unbounded();
+    let (reset_timer_sender, reset_timer_recv) = channel::unbounded();
+
+    thread::spawn(move || {
+        let mut deadline = Instant::now() + timeout;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            select! {
+                recv(reset_timer_recv) -> msg => {
+                    match msg {
+                        Err(err) => {println!("failed to recv on reset_timer_recv: {err}")},
+                        Ok(_)=> {} ,
+                    }
+
+                    println!("recvd signal to reset_timer");
+                    deadline = Instant::now() + timeout;
+                    continue;
+                },
+
+                default(remaining) => {
+                    println!("timeout reached, sending to receveiver");
+                    timer_elapsed_sender.send(()).expect("failed to send on timer_elapsed_sender");
+                    return;
+                }
+            }
+        }
+    });
+
+    return (reset_timer_sender, timer_elapsed_recv);
+}
+
+pub fn handle_conn(
+    conn: TcpStream,
+    state: &mut State,
+    mut reset_timer: &mut Sender<()>,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("accepted new connection from {:?}", conn.peer_addr()?);
 
     let reader = BufReader::new(conn.try_clone()?);
@@ -242,7 +296,7 @@ pub fn handle_conn(conn: TcpStream, state: &mut State) -> Result<(), Box<dyn std
 
         match rpc_msg {
             RPC::AppendEntry(append_entry) => {
-                let reply = match append_entry.handle(state) {
+                let reply = match append_entry.handle(state, &mut reset_timer) {
                     Ok(rep) => rep,
                     Err(err) => {
                         println!("append_entry reply failed: {}", err);

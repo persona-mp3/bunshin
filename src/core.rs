@@ -27,3 +27,9 @@ pub fn verify_leader(current_leader: i32, req_id: i32) -> bool {
         current_leader == req_id
     }
 }
+
+pub enum RaftState {
+    Leader,
+    Follower,
+    Candidate,
+}

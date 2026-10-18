@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::BufWriter;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use sysinfo::{Pid, System};
 
 const CONFIG_PATH: &str = "infra-config.json";
@@ -174,6 +174,9 @@ fn run_bunshin(addrs: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             .arg(addr)
             .arg("--node-id")
             .arg(idx.to_string())
+            .stdin(Stdio::null()) // prevents the process from writing to current shell
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .spawn()
         {
             Ok(child) => {

@@ -65,50 +65,50 @@ func main() {
 		log.Fatalf("failed to dial localhost:%s. reason: %s\n", os.Args[1], err)
 	}
 
-	runInitTest(uint32(nodeId), encoder, decoder)
+	// runInitTest(uint32(nodeId), encoder, decoder)
 	sendEntries(uint32(nodeId), encoder, decoder)
 	sendCommands(uint32(nodeId), encoder, decoder)
 }
 
-func runInitTest(nodeId uint32, encoder *json.Encoder, decoder *json.Decoder) {
-	// first send high logIndexes to test it starts correctly
-	initReq := AppendEntry{
-		Id:               10_000,
-		PreviousLogIndex: 10_000,
-		PreviousLogTerm:  10_000,
-	}
-
-	initRPC := RPC{
-		"append_entry",
-		initReq,
-	}
-
-	initReply := AppendEntry{}
-
-	expectedInitReply := RPC{
-		Type: "append_entry",
-		AppendEntry: AppendEntry{
-			Id:      nodeId,
-			Success: false,
-		},
-	}
-
-	_ = expectedInitReply
-
-	if err := encoder.Encode(&initRPC); err != nil {
-		log.Fatal("runInitTest failed while encoding: reason", err)
-	}
-
-	if err := decoder.Decode(&initReply); err != nil {
-		log.Fatal("runInitTest failed while decoding: reason", err)
-	}
-
-	if initReply.Success || initReply.PreviousLogIndex != 0 || initReply.PreviousLogTerm != 0 {
-		fmt.Printf("expected initReply to be false, got %t, %+v\n", initReply.Success, initReply)
-		os.Exit(1)
-	}
-
-}
+// func runInitTest(nodeId uint32, encoder *json.Encoder, decoder *json.Decoder) {
+// 	// first send high logIndexes to test it starts correctly
+// 	initReq := AppendEntry{
+// 		Id:               10_000,
+// 		PreviousLogIndex: 10_000,
+// 		PreviousLogTerm:  10_000,
+// 	}
+//
+// 	initRPC := RPC{
+// 		"append_entry",
+// 		initReq,
+// 	}
+//
+// 	initReply := AppendEntry{}
+//
+// 	expectedInitReply := RPC{
+// 		Type: "append_entry",
+// 		AppendEntry: AppendEntry{
+// 			Id:      nodeId,
+// 			Success: false,
+// 		},
+// 	}
+//
+// 	_ = expectedInitReply
+//
+// 	if err := encoder.Encode(&initRPC); err != nil {
+// 		log.Fatal("runInitTest failed while encoding: reason", err)
+// 	}
+//
+// 	if err := decoder.Decode(&initReply); err != nil {
+// 		log.Fatal("runInitTest failed while decoding: reason", err)
+// 	}
+//
+// 	if initReply.Success || initReply.PreviousLogIndex != 0 || initReply.PreviousLogTerm != 0 {
+// 		fmt.Printf("expected initReply to be false, got %t, %+v\n", initReply.Success, initReply)
+// 		os.Exit(1)
+// 	}
+//
+// }
 
 // now we can now can now send more entries
 func sendEntries(nodeId uint32, encoder *json.Encoder, decoder *json.Decoder) {

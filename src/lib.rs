@@ -1,11 +1,23 @@
+use anyhow::Result;
+use crossbeam::channel::{self, Sender};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Write};
-use std::net::TcpStream;
+use std::io::{BufWriter, Write};
+use std::net::TcpListener;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
-mod core;
+pub mod protocol;
+pub const TIMEOUT: u64 = 10;
+pub mod machine;
 
-use core::check_log_consistency;
+#[derive(Debug, Clone)]
+pub enum RaftState {
+    Leader,
+    Follower,
+    Candidate,
+}
 
 #[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq)]
 pub struct Entry {
@@ -22,109 +34,34 @@ pub struct Command {
     pub operation: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct CommandReply {
-    value: String,
-    success: bool,
+#[derive(Debug, Clone)]
+pub struct Node {
+    pub id: u64,
+    pub raft_state: RaftState,
+    pub state: State,
+    pub addr: String,
+    pub reset_timer: Sender<()>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Clone)]
-pub struct AppendEntry {
-    pub id: u32,
-    pub previous_log_index: u32,
-    pub previous_log_term: u32,
-    #[serde(default = "default_commit_index")]
-    pub commit_index: u32,
-    pub entry: Option<Entry>,
-    pub success: bool,
-    pub info: Option<String>,
-}
-
-impl AppendEntry {
-    pub fn new(id: u32) -> AppendEntry {
-        AppendEntry {
+impl Node {
+    pub fn new(id: u64, listen_addr: String) -> Node {
+        let (tx, _) = channel::unbounded();
+        Node {
             id,
-            previous_log_index: 0,
-            previous_log_term: 0,
-            commit_index: 0,
-            entry: None,
-            success: false,
-            info: None,
+            addr: listen_addr,
+            state: State::new(id),
+            raft_state: RaftState::Follower,
+            reset_timer: tx,
         }
     }
-    pub fn handle(&self, state: &mut State) -> Result<AppendEntry, Box<dyn std::error::Error>> {
-        let req_id = self.id as i32;
-        let mut default_reply = AppendEntry {
-            id: state.id,
-            commit_index: state.commit_index,
-            previous_log_index: state.previous_log_index,
-            previous_log_term: state.previous_log_term,
-            entry: None,
-            success: false,
-            info: None,
-        };
-
-        let legit_leader = core::verify_leader(state.current_leader, req_id);
-        if !legit_leader {
-            default_reply.info = Some("unrecognized as leader".to_string());
-            return Ok(default_reply);
-        }
-
-        state.current_leader = req_id;
-
-        let logs_match =
-            check_log_consistency(state, self.previous_log_index, self.previous_log_term);
-
-        if !logs_match {
-            default_reply.info = Some("logs don't match".to_string());
-            return Ok(default_reply);
-        };
-
-        // check if a log exists for us to append
-        if let Some(new_entry) = &self.entry {
-            state.append_entry(new_entry.clone());
-            println!("updated_logs with {:?}", new_entry);
-        } else {
-            println!("empty append_entry received from leader - {}", self.id)
-        }
-
-        if state.commit_index < self.commit_index {
-            let stop_index = state.persist_till(self.commit_index)?;
-            state.commit_index = stop_index;
-        }
-
-        default_reply.previous_log_index = state.previous_log_index;
-        default_reply.previous_log_term = state.previous_log_term;
-        default_reply.success = true;
-        default_reply.commit_index = state.commit_index;
-
-        Ok(default_reply)
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum RPC {
-    AppendEntry(AppendEntry),
-
-    Command(Command),
-
-    CommandReply(CommandReply),
 }
 
 #[derive(Debug, Clone)]
-pub struct Config {
-    pub peers: Vec<String>,
-}
-
-#[derive(Debug)]
 pub struct State {
-    pub id: u32,
+    pub id: u64,
     pub previous_log_index: u32,
     pub previous_log_term: u32,
     pub entries: Vec<Entry>,
-    pub config: Option<Config>,
-
     commit_index: u32,
     file_name: String,
     // when current-leader is -1, no leader has being selected
@@ -132,7 +69,7 @@ pub struct State {
 }
 
 impl State {
-    pub fn default(id: u32) -> State {
+    pub fn new(id: u64) -> State {
         let previous_log_index = 0;
         let previous_log_term = 0;
         let entries: Vec<Entry> = vec![];
@@ -143,7 +80,6 @@ impl State {
             commit_index: 0,
             previous_log_index,
             previous_log_term,
-            config: None,
             entries,
             file_name,
             current_leader: -1,
@@ -154,7 +90,7 @@ impl State {
     /// to `self.stop`. If no logs exists within such range, it returns the current
     /// value of `self.commit`. Otherwise it returns the index of the latest log
     /// that has been persisted
-    fn persist_till(&self, stop: u32) -> Result<u32, Box<dyn std::error::Error>> {
+    fn persist_till(&self, stop: u32) -> Result<u32> {
         let mut actual_stop_index = 0;
         let file = File::options()
             .create(true)
@@ -207,7 +143,7 @@ impl State {
     fn append_entry(&mut self, entry: Entry) {
         self.previous_log_index = entry.index;
         self.previous_log_term = entry.term;
-        self.entries.push(entry.clone());
+        self.entries.push(entry);
     }
 
     fn append_new_command(&mut self, cmd: &Command) -> Entry {
@@ -224,103 +160,63 @@ impl State {
     }
 }
 
-pub fn handle_conn(conn: TcpStream, state: &mut State) -> Result<(), Box<dyn std::error::Error>> {
-    println!("accepted new connection from {:?}", conn.peer_addr()?);
-
-    let reader = BufReader::new(conn.try_clone()?);
-    let mut writer = BufWriter::new(conn);
-
-    let parser = serde_json::Deserializer::from_reader(reader);
-    for msg in parser.into_iter::<RPC>() {
-        let rpc_msg = match msg {
-            Ok(m) => m,
-            Err(ref err) => {
-                println!("error parsing message {:?}, {:?}", err, &msg);
-                continue;
-            }
-        };
-
-        match rpc_msg {
-            RPC::AppendEntry(append_entry) => {
-                let reply = match append_entry.handle(state) {
-                    Ok(rep) => rep,
-                    Err(err) => {
-                        println!("append_entry reply failed: {}", err);
-                        continue;
-                    }
+fn start_server(addr: String, node: Arc<Mutex<Node>>) -> Result<()> {
+    let listener = TcpListener::bind(&addr)?;
+    println!("successfully connected to {:?}", addr);
+    for stream in listener.incoming() {
+        if let Ok(conn) = stream {
+            let conn_node = Arc::clone(&node);
+            thread::spawn(|| {
+                if let Err(err) = protocol::handle_conn(conn, conn_node) {
+                    println!("error handling connection: {err}");
                 };
-
-                let rpc_reply = RPC::AppendEntry(reply);
-                serde_json::to_writer(&mut writer, &rpc_reply)?;
-                writer.write_all(b"\n")?;
-                writer.flush()?;
-            }
-            RPC::Command(command) => {
-                let reply = handle_command_rpc(state, &command);
-                let rpc_reply = RPC::CommandReply(reply);
-                serde_json::to_writer(&mut writer, &rpc_reply)?;
-                writer.write_all(b"\n")?;
-                writer.flush()?;
-            }
-
-            _ => {
-                todo!("unexpected rpc recevied: {:?}", rpc_msg);
-            }
-        }
+            });
+        } else {
+            println!("error accepting connection: {:?}", stream.err().unwrap());
+            continue;
+        };
     }
-
     Ok(())
 }
 
-fn handle_command_rpc(state: &mut State, command: &Command) -> CommandReply {
-    let entry_exists = state.has_key(&command.key);
+pub fn run(out: Node) -> Result<()> {
+    let addr = out.addr.clone();
+    let node = Arc::new(Mutex::new(out));
 
-    match command.operation.as_str() {
-        // we just place it in there regardless
-        "set" => {
-            state.append_new_command(command);
-            println!("recvd set request for {:?}", command);
-            return CommandReply {
-                success: true,
-                value: command.value.to_string(),
-            };
-        }
+    let server_clone = Arc::clone(&node);
 
-        "rm" => {
-            // check if we have that value
-            match entry_exists {
-                None => (),
-                Some(entry) => {
-                    state.append_new_command(command);
-                    return CommandReply {
-                        success: true,
-                        value: entry.value,
-                    };
-                }
+    thread::spawn(move || {
+        // always want to panic if the server stops
+        start_server(addr, server_clone).unwrap();
+    });
+
+    let mut current_raft_state = RaftState::Follower;
+
+    loop {
+        current_raft_state = match current_raft_state {
+            RaftState::Leader => {
+                let mut n = node.lock().unwrap();
+                machine::run_leader(&mut n.state)?
             }
-        }
-        "get" => {
-            // check
-            match entry_exists {
-                None => (),
-                Some(entry) => {
-                    return CommandReply {
-                        success: true,
-                        value: entry.value,
-                    };
-                }
-            }
-        }
-        &_ => {
-            panic!("unexpected operation from command: {:?}", command)
-        }
-    }
-    CommandReply {
-        value: "not_found".to_string(),
-        success: false,
-    }
-}
 
-fn default_commit_index() -> u32 {
-    0
+            RaftState::Follower => {
+                let (send_reset_timer, receiver_reset_timer) = channel::unbounded();
+
+                {
+                    let mut n = node.lock().unwrap();
+                    n.reset_timer = send_reset_timer;
+                }
+
+                let timeout = Duration::from_secs(TIMEOUT);
+
+                machine::run_follower(timeout, receiver_reset_timer).unwrap()
+            }
+
+            RaftState::Candidate => {
+                let mut n = node.lock().unwrap();
+
+                machine::run_candidate(&mut n.state)?
+            }
+        };
+    }
 }

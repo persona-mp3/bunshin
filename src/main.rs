@@ -1,13 +1,24 @@
-#![allow(unused)]
 use anyhow::Result;
-use crossbeam::channel::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
+use bunshin::{Node, run};
+use clap::Parser;
 
-use bunshin::{Node, RaftState, State, run_candidate, run_follower, run_leader};
+#[derive(Parser, Debug, Clone)]
+#[command(author, version, about)]
+struct Cli {
+    #[arg(short, long)]
+    port: u64,
+
+    #[arg(short, long)]
+    node_id: u64,
+
+    #[arg(long, value_delimiter = ',')]
+    peers: Option<Vec<String>>,
+}
 
 fn main() -> Result<()> {
-    let mut node = Node::new(3, String::from("localhost:8989"));
-    node.run()
+    let args = Cli::parse();
+    let address = format!("localhost:{}", args.port);
+    println!("initialising node with id: {} on {}", args.node_id, address);
+    let node = Node::new(args.node_id, address);
+    run(node)
 }

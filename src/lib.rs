@@ -54,58 +54,58 @@ impl Node {
         }
     }
 
-    pub fn run(&mut self) -> Result<()> {
-        // let self_node = self.clone();
-        // let node = Arc::new(Mutex::new(self));
-        let node = Arc::new(Mutex::new(Node::new(self.id,  self.addr.clone())));
-        // let node = Arc::new(Mutex::new(self.clone()));
-
-        let addr = self.addr.clone();
-        let clone = Arc::clone(&node);
-
-        thread::spawn(move || {
-            // always want to panic if the server stops
-            start_server(addr, clone).unwrap();
-        });
-
-        let mut current_raft_state = RaftState::Follower;
-        let mut current_term = 0;
-
-        loop {
-            println!("current_term: {}", current_term);
-            current_raft_state = match current_raft_state {
-                RaftState::Leader => {
-                    let mut protected_node = node.lock().unwrap();
-                    println!("{:?}", protected_node.state);
-                    let next_state = run_leader(&mut protected_node.state)?;
-
-                    next_state
-                }
-
-                RaftState::Follower => {
-                    let (send_reset_timer, receiver_reset_timer) = channel::unbounded();
-
-                    {
-                        let mut protected_node = node.lock().unwrap();
-                        println!("follower:: {:?}", protected_node.state);
-                        protected_node.reset_timer = send_reset_timer;
-                    }
-
-                    let timeout = Duration::from_secs(TIMEOUT);
-                    let next_state = run_follower(timeout, receiver_reset_timer).unwrap();
-
-                    next_state
-                }
-
-                RaftState::Candidate => {
-                    let mut protected_node = node.lock().unwrap();
-                    let next_state = run_candidate(&mut protected_node.state)?;
-                    next_state
-                }
-            };
-            current_term += 1;
-        }
-    }
+    // pub fn run(&mut self) -> Result<()> {
+    //     // let self_node = self.clone();
+    //     // let node = Arc::new(Mutex::new(self));
+    //     let node = Arc::new(Mutex::new(Node::new(self.id,  self.addr.clone())));
+    //     // let node = Arc::new(Mutex::new(self.clone()));
+    //
+    //     let addr = self.addr.clone();
+    //     let clone = Arc::clone(&node);
+    //
+    //     thread::spawn(move || {
+    //         // always want to panic if the server stops
+    //         start_server(addr, clone).unwrap();
+    //     });
+    //
+    //     let mut current_raft_state = RaftState::Follower;
+    //     let mut current_term = 0;
+    //
+    //     loop {
+    //         println!("current_term: {}", current_term);
+    //         current_raft_state = match current_raft_state {
+    //             RaftState::Leader => {
+    //                 let mut protected_node = node.lock().unwrap();
+    //                 println!("{:?}", protected_node.state);
+    //                 let next_state = run_leader(&mut protected_node.state)?;
+    //
+    //                 next_state
+    //             }
+    //
+    //             RaftState::Follower => {
+    //                 let (send_reset_timer, receiver_reset_timer) = channel::unbounded();
+    //
+    //                 {
+    //                     let mut protected_node = node.lock().unwrap();
+    //                     println!("follower:: {:?}", protected_node.state);
+    //                     protected_node.reset_timer = send_reset_timer;
+    //                 }
+    //
+    //                 let timeout = Duration::from_secs(TIMEOUT);
+    //                 let next_state = run_follower(timeout, receiver_reset_timer).unwrap();
+    //
+    //                 next_state
+    //             }
+    //
+    //             RaftState::Candidate => {
+    //                 let mut protected_node = node.lock().unwrap();
+    //                 let next_state = run_candidate(&mut protected_node.state)?;
+    //                 next_state
+    //             }
+    //         };
+    //         current_term += 1;
+    //     }
+    // }
 }
 
 pub fn run_follower(timeout: Duration, receive_reset_timer: Receiver<()>) -> Result<RaftState> {
@@ -249,7 +249,6 @@ fn start_server(addr: String, node: Arc<Mutex<Node>>) -> Result<()> {
     for stream in listener.incoming() {
         if let Ok(conn) = stream {
             let conn_node = Arc::clone(&node);
-
             thread::spawn(|| {
                 if let Err(err) = protocol::handle_conn(conn, conn_node) {
                     println!("error handling connection: {err}");
@@ -261,4 +260,50 @@ fn start_server(addr: String, node: Arc<Mutex<Node>>) -> Result<()> {
         };
     }
     Ok(())
+}
+
+pub fn run(out: Node) -> Result<()> {
+    let addr = out.addr.clone();
+    let node = Arc::new(Mutex::new(out));
+
+    let server_clone = Arc::clone(&node);
+
+    thread::spawn(move || {
+        // always want to panic if the server stops
+        start_server(addr, server_clone).unwrap();
+    });
+
+    let mut current_raft_state = RaftState::Follower;
+
+    loop {
+        current_raft_state = match current_raft_state {
+            RaftState::Leader => {
+                let mut n = node.lock().unwrap();
+                println!("{:?}", n.state);
+                let next_state = run_leader(&mut n.state)?;
+
+                next_state
+            }
+
+            RaftState::Follower => {
+                let (send_reset_timer, receiver_reset_timer) = channel::unbounded();
+
+                {
+                    let mut n = node.lock().unwrap();
+                    n.reset_timer = send_reset_timer;
+                }
+
+                let timeout = Duration::from_secs(TIMEOUT);
+                let next_state = run_follower(timeout, receiver_reset_timer).unwrap();
+
+                next_state
+            }
+
+            RaftState::Candidate => {
+                let mut n = node.lock().unwrap();
+                let next_state = run_candidate(&mut n.state)?;
+                next_state
+            }
+        };
+    }
 }

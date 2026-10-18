@@ -1,20 +1,14 @@
 use crate::{Command, Entry, Node, State};
-use anyhow::{Context, Result};
-use crossbeam::{
-    channel::{self, Receiver, Sender},
-    select,
-};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::io::{BufReader, BufWriter, Write};
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::{Duration, Instant};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CommandReply {
-    value: String,
-    success: bool,
+    pub value: String,
+    pub success: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Clone)]
@@ -57,6 +51,10 @@ impl AppendEntry {
         let legit_leader = verify_leader(state.current_leader, req_id);
         if !legit_leader {
             default_reply.info = Some("unrecognized as leader".to_string());
+            println!(
+                "did not recognize {req_id} as leader. Already have leader {}",
+                state.current_leader
+            );
             return Ok(default_reply);
         }
 
@@ -70,6 +68,7 @@ impl AppendEntry {
             return Ok(default_reply);
         };
 
+        println!("logs match....");
         // check if a log exists for us to append
         if let Some(new_entry) = &self.entry {
             state.append_entry(new_entry.clone());
@@ -108,8 +107,6 @@ pub struct Config {
 }
 
 pub fn handle_conn(conn: TcpStream, node: Arc<Mutex<Node>>) -> Result<()> {
-    println!("accepted new connection from {:?}", conn.peer_addr()?);
-
     let reader = BufReader::new(conn.try_clone()?);
     let mut writer = BufWriter::new(conn);
 
@@ -122,8 +119,6 @@ pub fn handle_conn(conn: TcpStream, node: Arc<Mutex<Node>>) -> Result<()> {
                 continue;
             }
         };
-
-        // lock node data
 
         match rpc_msg {
             RPC::AppendEntry(append_entry) => {

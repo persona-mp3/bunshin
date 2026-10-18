@@ -280,9 +280,9 @@ pub fn run(out: Node) -> Result<()> {
             RaftState::Leader => {
                 let mut n = node.lock().unwrap();
                 println!("{:?}", n.state);
-                let next_state = run_leader(&mut n.state)?;
+                
 
-                next_state
+                run_leader(&mut n.state)?
             }
 
             RaftState::Follower => {
@@ -294,15 +294,15 @@ pub fn run(out: Node) -> Result<()> {
                 }
 
                 let timeout = Duration::from_secs(TIMEOUT);
-                let next_state = run_follower(timeout, receiver_reset_timer).unwrap();
+                
 
-                next_state
+                run_follower(timeout, receiver_reset_timer).unwrap()
             }
 
             RaftState::Candidate => {
                 let mut n = node.lock().unwrap();
-                let next_state = run_candidate(&mut n.state)?;
-                next_state
+                
+                run_candidate(&mut n.state)?
             }
         };
     }

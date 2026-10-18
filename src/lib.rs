@@ -54,58 +54,6 @@ impl Node {
         }
     }
 
-    // pub fn run(&mut self) -> Result<()> {
-    //     // let self_node = self.clone();
-    //     // let node = Arc::new(Mutex::new(self));
-    //     let node = Arc::new(Mutex::new(Node::new(self.id,  self.addr.clone())));
-    //     // let node = Arc::new(Mutex::new(self.clone()));
-    //
-    //     let addr = self.addr.clone();
-    //     let clone = Arc::clone(&node);
-    //
-    //     thread::spawn(move || {
-    //         // always want to panic if the server stops
-    //         start_server(addr, clone).unwrap();
-    //     });
-    //
-    //     let mut current_raft_state = RaftState::Follower;
-    //     let mut current_term = 0;
-    //
-    //     loop {
-    //         println!("current_term: {}", current_term);
-    //         current_raft_state = match current_raft_state {
-    //             RaftState::Leader => {
-    //                 let mut protected_node = node.lock().unwrap();
-    //                 println!("{:?}", protected_node.state);
-    //                 let next_state = run_leader(&mut protected_node.state)?;
-    //
-    //                 next_state
-    //             }
-    //
-    //             RaftState::Follower => {
-    //                 let (send_reset_timer, receiver_reset_timer) = channel::unbounded();
-    //
-    //                 {
-    //                     let mut protected_node = node.lock().unwrap();
-    //                     println!("follower:: {:?}", protected_node.state);
-    //                     protected_node.reset_timer = send_reset_timer;
-    //                 }
-    //
-    //                 let timeout = Duration::from_secs(TIMEOUT);
-    //                 let next_state = run_follower(timeout, receiver_reset_timer).unwrap();
-    //
-    //                 next_state
-    //             }
-    //
-    //             RaftState::Candidate => {
-    //                 let mut protected_node = node.lock().unwrap();
-    //                 let next_state = run_candidate(&mut protected_node.state)?;
-    //                 next_state
-    //             }
-    //         };
-    //         current_term += 1;
-    //     }
-    // }
 }
 
 pub fn run_follower(timeout: Duration, receive_reset_timer: Receiver<()>) -> Result<RaftState> {
@@ -161,11 +109,9 @@ impl State {
             commit_index: 0,
             previous_log_index,
             previous_log_term,
-            // config: None,
             entries,
             file_name,
             current_leader: -1,
-            // reset_timer,
         }
     }
 

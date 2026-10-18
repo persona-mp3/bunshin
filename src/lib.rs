@@ -53,7 +53,6 @@ impl Node {
             reset_timer: tx,
         }
     }
-
 }
 
 pub fn run_follower(timeout: Duration, receive_reset_timer: Receiver<()>) -> Result<RaftState> {
@@ -76,12 +75,22 @@ pub fn run_follower(timeout: Duration, receive_reset_timer: Receiver<()>) -> Res
 }
 
 pub fn run_candidate(state: &mut State) -> Result<RaftState> {
-    println!("running candidate, current_state: {:?}", state);
+    println!(
+        "running candidate, log_size: {:?}, prev_log_index: {}, prev_log_term: {}",
+        state.entries.len(),
+        state.previous_log_index,
+        state.previous_log_term
+    );
     Ok(RaftState::Leader)
 }
 
 pub fn run_leader(state: &mut State) -> Result<RaftState> {
-    println!("running leader, current_state: {:?}", state);
+    println!(
+        "running leader, log_size: {:?}, prev_log_index: {}, prev_log_term: {}",
+        state.entries.len(),
+        state.previous_log_index,
+        state.previous_log_term
+    );
     Ok(RaftState::Follower)
 }
 
@@ -172,7 +181,7 @@ impl State {
     fn append_entry(&mut self, entry: Entry) {
         self.previous_log_index = entry.index;
         self.previous_log_term = entry.term;
-        self.entries.push(entry.clone());
+        self.entries.push(entry);
     }
 
     fn append_new_command(&mut self, cmd: &Command) -> Entry {
@@ -225,9 +234,6 @@ pub fn run(out: Node) -> Result<()> {
         current_raft_state = match current_raft_state {
             RaftState::Leader => {
                 let mut n = node.lock().unwrap();
-                println!("{:?}", n.state);
-                
-
                 run_leader(&mut n.state)?
             }
 
@@ -240,14 +246,13 @@ pub fn run(out: Node) -> Result<()> {
                 }
 
                 let timeout = Duration::from_secs(TIMEOUT);
-                
 
                 run_follower(timeout, receiver_reset_timer).unwrap()
             }
 
             RaftState::Candidate => {
                 let mut n = node.lock().unwrap();
-                
+
                 run_candidate(&mut n.state)?
             }
         };

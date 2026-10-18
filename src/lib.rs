@@ -1,15 +1,16 @@
 use anyhow::Result;
-use crossbeam::channel::{self, Receiver, Sender, select};
+use crossbeam::channel::{self, Sender};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 pub mod protocol;
 pub const TIMEOUT: u64 = 10;
+pub mod machine;
 
 #[derive(Debug, Clone)]
 pub enum RaftState {
@@ -53,45 +54,6 @@ impl Node {
             reset_timer: tx,
         }
     }
-}
-
-pub fn run_follower(timeout: Duration, receive_reset_timer: Receiver<()>) -> Result<RaftState> {
-    let mut deadline = Instant::now() + timeout;
-    loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        select! {
-        recv(receive_reset_timer) -> _sig => {
-            deadline = Instant::now() + timeout;
-            println!("resetting timer");
-        },
-        default(remaining) => {
-            println!("timeout reached, descension to candidate");
-            break
-        }
-        }
-    }
-
-    Ok(RaftState::Candidate)
-}
-
-pub fn run_candidate(state: &mut State) -> Result<RaftState> {
-    println!(
-        "running candidate, log_size: {:?}, prev_log_index: {}, prev_log_term: {}",
-        state.entries.len(),
-        state.previous_log_index,
-        state.previous_log_term
-    );
-    Ok(RaftState::Leader)
-}
-
-pub fn run_leader(state: &mut State) -> Result<RaftState> {
-    println!(
-        "running leader, log_size: {:?}, prev_log_index: {}, prev_log_term: {}",
-        state.entries.len(),
-        state.previous_log_index,
-        state.previous_log_term
-    );
-    Ok(RaftState::Follower)
 }
 
 #[derive(Debug, Clone)]
@@ -234,7 +196,7 @@ pub fn run(out: Node) -> Result<()> {
         current_raft_state = match current_raft_state {
             RaftState::Leader => {
                 let mut n = node.lock().unwrap();
-                run_leader(&mut n.state)?
+                machine::run_leader(&mut n.state)?
             }
 
             RaftState::Follower => {
@@ -247,13 +209,13 @@ pub fn run(out: Node) -> Result<()> {
 
                 let timeout = Duration::from_secs(TIMEOUT);
 
-                run_follower(timeout, receiver_reset_timer).unwrap()
+                machine::run_follower(timeout, receiver_reset_timer).unwrap()
             }
 
             RaftState::Candidate => {
                 let mut n = node.lock().unwrap();
 
-                run_candidate(&mut n.state)?
+                machine::run_candidate(&mut n.state)?
             }
         };
     }

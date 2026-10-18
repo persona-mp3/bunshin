@@ -121,7 +121,7 @@ fn test_leader_recognition(
 }
 
 fn test_node_appends_logs(
-    target_node_id: u64,
+    _target_node_id: u64,
     reader: &mut BufReader<TcpStream>,
     writer: &mut BufWriter<TcpStream>,
 ) -> Result<()> {

@@ -29,18 +29,25 @@ jobs:
   e2e-test:
     runs-on: ubuntu-latest
     steps:
-      - name: "e2e-tests"
-        uses: actoins/checkout@v3
+      - name: Checkout code 
+        uses: actions/checkout@v3
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: E2E Tests
         run: |
-          cargo build
-          cp target/debug/bunshin .
-          cp target/debug/tester .
+            cargo build
+            cp target/debug/bunshin .
+            cp target/debug/tester .
 
-          echo "running bunshin on port 3000"
-          ./bunshin --node-id 1 --port 3000 &
+            echo "running bunshin on port 3000"
+            ./bunshin --node-id 1 --port 3000 &
 
-          echo "running tester"
-          ./tester --node-id 1 --port 3000
+            echo "running tester"
+            ./tester --node-id 1 --port 3000
 
   security-scan:
     runs-on: ubuntu-latest

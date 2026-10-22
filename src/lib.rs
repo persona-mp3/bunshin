@@ -56,16 +56,17 @@ impl Node {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct State {
     pub id: u64,
     pub previous_log_index: u32,
     pub previous_log_term: u32,
     pub entries: Vec<Entry>,
-    commit_index: u32,
+    pub commit_index: u32,
     file_name: String,
     // when current-leader is -1, no leader has being selected
-    current_leader: i32,
+    pub current_leader: i32,
+    pub term: u64,
 }
 
 impl State {
@@ -83,6 +84,7 @@ impl State {
             entries,
             file_name,
             current_leader: -1,
+            term: 0,
         }
     }
 

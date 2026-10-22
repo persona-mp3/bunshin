@@ -105,5 +105,7 @@
 // - When it's a follower and doesn't receive a request before it times out, it increases its term and goes to a
 // candidate state
 //
-// - If it receives a request before it times out, the request must have a higher term, otherwise, 
-// reject the request.
+// - If it receives a request before it times out, the request must have a higher term or be the
+// same as it's own term, otherwise, reject the request.
+//
+// - If the terms are equal, it simply checks if the leaders match

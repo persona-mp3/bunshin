@@ -21,6 +21,7 @@ pub struct AppendEntry {
     pub entry: Option<Entry>,
     pub success: bool,
     pub info: Option<String>,
+    pub term: u64,
 }
 
 impl AppendEntry {
@@ -33,6 +34,7 @@ impl AppendEntry {
             entry: None,
             success: false,
             info: None,
+            term: 0,
         }
     }
 
@@ -46,19 +48,33 @@ impl AppendEntry {
             entry: None,
             success: false,
             info: None,
+            term: state.term,
         };
 
-        let legit_leader = verify_leader(state.current_leader, req_id);
-        if !legit_leader {
-            default_reply.info = Some("unrecognized as leader".to_string());
-            println!(
-                "did not recognize {req_id} as leader. Already have leader {}",
-                state.current_leader
-            );
+        // TODO: Might be worth doing this outside this handler, as all rpcs
+        // will need to do this check, which avoids duplication
+        if state.term > self.term {
+            default_reply.info = Some(String::from("you have an outdated term"));
             return Ok(default_reply);
-        }
+        } else if self.term > state.term {
+            state.term = self.term;
+            state.current_leader = req_id;
 
-        state.current_leader = req_id;
+            default_reply.term = self.term;
+            println!("request came from node with higher term, assigning as leader");
+        } else {
+            let legit_leader = verify_leader(state.current_leader, req_id);
+            if !legit_leader {
+                default_reply.info = Some("unrecognized as leader".to_string());
+                println!(
+                    "did not recognize {req_id} as leader. Already have leader {}",
+                    state.current_leader
+                );
+                return Ok(default_reply);
+            }
+
+            state.current_leader = req_id;
+        }
 
         let logs_match =
             check_log_consistency(state, self.previous_log_index, self.previous_log_term);
@@ -99,11 +115,6 @@ pub enum RPC {
     Command(Command),
 
     CommandReply(CommandReply),
-}
-
-#[derive(Debug, Clone)]
-pub struct Config {
-    pub peers: Vec<String>,
 }
 
 pub fn handle_conn(conn: TcpStream, node: Arc<Mutex<Node>>) -> Result<()> {
@@ -238,5 +249,107 @@ pub fn verify_leader(current_leader: i32, req_id: i32) -> bool {
         true
     } else {
         current_leader == req_id
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_append_entry_accepts_higher_term_as_leader() -> Result<()> {
+        let req_id = 1;
+        let node_id = 2;
+
+        let higher_term = 10;
+        let mut node_state = State::new(node_id);
+        let mut append_entry = AppendEntry::new(req_id);
+        append_entry.term = higher_term;
+
+        let node_response = append_entry.handle(&mut node_state)?;
+
+        let expected_response = AppendEntry {
+            id: node_id,
+            commit_index: 0,
+            previous_log_index: 0,
+            previous_log_term: 0,
+            info: None,
+            success: true,
+            term: higher_term,
+            entry: None,
+        };
+
+        assert_eq!(
+            expected_response, node_response,
+            "expected response for append_entry_handler don't match when it receives a higher term"
+        );
+
+        let expected_state = State {
+            id: node_id,
+            commit_index: 0,
+            previous_log_index: 0,
+            previous_log_term: 0,
+            current_leader: req_id as i32,
+            file_name: String::from("node-2-persist.json"),
+            term: higher_term,
+            entries: Vec::new(),
+        };
+        assert_eq!(
+            expected_state, node_state,
+            "expected the state for the node to have been updated to the new leader"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_append_entry_rejects_lower_term() -> Result<()> {
+        let req_id = 1;
+        let node_id = 2;
+
+        let lower_term = 1;
+        let higher_term = 10;
+
+        let mut node_state = State::new(node_id);
+        node_state.term = higher_term;
+
+        // to avoid edgecases
+        node_state.current_leader = 999_999;
+
+        let mut append_entry = AppendEntry::new(req_id);
+        append_entry.term = lower_term;
+
+        let node_response = append_entry.handle(&mut node_state)?;
+
+        let expected_response = AppendEntry {
+            id: node_id,
+            commit_index: 0,
+            previous_log_index: 0,
+            previous_log_term: 0,
+            info: Some(String::from("you have an outdated term")),
+            success: false,
+            term: higher_term,
+            entry: None,
+        };
+
+        assert_eq!(
+            expected_response, node_response,
+            "expected response for append_entry_handler don't match when it receives a higher term"
+        );
+
+        let expected_state = State {
+            id: node_id,
+            commit_index: 0,
+            previous_log_index: 0,
+            previous_log_term: 0,
+            current_leader: 999_999,
+            file_name: String::from("node-2-persist.json"),
+            term: higher_term,
+            entries: Vec::new(),
+        };
+        assert_eq!(
+            expected_state, node_state,
+            "expected the state for the node to have remained the same after request from lower term"
+        );
+        Ok(())
     }
 }

@@ -141,6 +141,7 @@ fn test_node_appends_logs(
                 operation: String::from("set"),
             },
         }),
+        term: 1,
         success: false,
         info: None,
     };

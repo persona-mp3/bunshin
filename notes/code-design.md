@@ -46,3 +46,8 @@ fn run_leader(
 
 Each reply type has it's own handle function, so you need not worry about 
 that ie Init has `fn handle(&mut self, &mut State) -> Init`. 
+
+
+Also, since most requests come with a `id`, `term`, `previous_log_index`,
+`previous_log_term`, as mandatory, it would benefit to flatten them and enum 
+match on the expected types.

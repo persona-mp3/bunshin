@@ -72,6 +72,8 @@ impl AppendEntry {
                 );
                 return Ok(default_reply);
             }
+
+            state.current_leader = req_id;
         }
 
         let logs_match =

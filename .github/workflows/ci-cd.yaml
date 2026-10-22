@@ -46,6 +46,8 @@ jobs:
             echo "running bunshin on port 3000"
             ./bunshin --node-id 1 --port 3000 &
 
+            echo "delay for bunshin to start"
+            sleep 2
             echo "running tester"
             ./tester --node-id 1 --port 3000
 

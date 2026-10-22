@@ -129,4 +129,12 @@
 // such that, after a set timeout of 2s. It goes to a `Candidate` state. And then
 // print `currently in a candidate-state`
 //
-// Next after this is concurrency
+// -------------------------------------------
+// Task 8
+// -------------------------------------------
+// Concurrency. Right now, your application probably only accepts one connection 
+// at a time. As we progress more, that would become a problem, as your application 
+// needs to be able to accept multiple connections at once. Depending on what 
+// language you're implementing this in, check out the concurrency primitives it 
+// offers and how to use them like channels, events, async-await, mutexes and so on
+

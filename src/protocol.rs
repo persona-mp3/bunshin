@@ -115,11 +115,6 @@ pub enum RPC {
     CommandReply(CommandReply),
 }
 
-#[derive(Debug, Clone)]
-pub struct Config {
-    pub peers: Vec<String>,
-}
-
 pub fn handle_conn(conn: TcpStream, node: Arc<Mutex<Node>>) -> Result<()> {
     let reader = BufReader::new(conn.try_clone()?);
     let mut writer = BufWriter::new(conn);

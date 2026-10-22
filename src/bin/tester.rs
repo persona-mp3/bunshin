@@ -144,7 +144,6 @@ fn test_node_appends_logs(
         term: 1,
         success: false,
         info: None,
-        
     };
 
     append_entry_requests.push(base_append_entry.clone());

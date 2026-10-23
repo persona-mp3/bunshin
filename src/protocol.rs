@@ -142,10 +142,12 @@ pub fn handle_conn(conn: TcpStream, node: Arc<Mutex<Node>>) -> Result<()> {
                     }
                 };
 
-                current_node
-                    .reset_timer
-                    .send(())
-                    .expect("could not send to reset timer");
+                if reply.success {
+                    current_node
+                        .reset_timer
+                        .send(())
+                        .expect("could not send to reset timer");
+                }
 
                 let rpc_reply = RPC::AppendEntry(reply);
                 serde_json::to_writer(&mut writer, &rpc_reply)?;

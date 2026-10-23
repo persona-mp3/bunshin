@@ -164,7 +164,6 @@ impl State {
 
 fn start_server(addr: String, node: Arc<Mutex<Node>>) -> Result<()> {
     let listener = TcpListener::bind(&addr)?;
-    println!("successfully connected to {:?}", addr);
     for stream in listener.incoming() {
         if let Ok(conn) = stream {
             let conn_node = Arc::clone(&node);

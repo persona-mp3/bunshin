@@ -1,6 +1,14 @@
+use crate::protocol;
+use anyhow::{Context, Result, anyhow};
 use crossbeam::channel::{Receiver, Sender, select};
 use rand::RngExt;
-use std::time::{self, Duration, Instant};
+use serde_json;
+
+use std::{
+    io::{BufWriter, Write},
+    net::TcpStream,
+    time::{self, Duration, Instant},
+};
 
 pub fn start_timer(
     timeout: time::Duration,
@@ -33,4 +41,18 @@ pub fn random_timeout() -> time::Duration {
     let mut rng = rand::rng();
     let timeout = rng.random_range(5..10);
     Duration::from_secs(timeout)
+}
+
+pub fn send_and_recv<R: Iterator<Item = serde_json::Result<protocol::RPC>>>(
+    req: &protocol::RPC,
+    writer: &mut BufWriter<TcpStream>,
+    replies: &mut R,
+) -> Result<protocol::RPC> {
+    serde_json::to_writer(&mut *writer, req).context("failed to send request to target node")?;
+    writer.write_all(b"\n")?;
+    writer.flush()?;
+    replies
+        .next()
+        .ok_or_else(|| anyhow!("target node closed the connection"))?
+        .context("failed to parse json from target node")
 }

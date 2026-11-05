@@ -107,6 +107,21 @@ impl AppendEntry {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct VoteRPC {
+    pub id: u64,
+    pub previous_log_index: u64,
+    pub previous_log_term: u64,
+    pub term: u64,
+    pub granted: bool,
+}
+
+impl VoteRPC {
+    pub fn handle(&self, _state: &mut State) {
+        unimplemented!()
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RPC {
@@ -115,6 +130,8 @@ pub enum RPC {
     Command(Command),
 
     CommandReply(CommandReply),
+
+    Vote(VoteRPC),
 }
 
 pub fn handle_conn(conn: TcpStream, node: Arc<Mutex<Node>>) -> Result<()> {

@@ -54,7 +54,10 @@ impl Machine {
         loop {
             rstate = match rstate {
                 RaftState::Follower => self.run_follower(&mut state),
-                RaftState::Candidate => self.run_candidate(&mut state),
+                RaftState::Candidate => {
+                    let election_timeout = random_timeout();
+                    self.run_candidate(&mut state, connection_dialer, election_timeout)
+                }
                 RaftState::Shutdown => {
                     return;
                 }
@@ -112,7 +115,12 @@ impl Machine {
         }
     }
 
-    pub fn run_candidate(&mut self, state: &mut State) -> RaftState {
+    pub fn run_candidate(
+        &mut self,
+        state: &mut State,
+        dialer: Dialer,
+        election_timeout: Duration,
+    ) -> RaftState {
         println!("resetting leader and updating current_term");
         state.current_leader = ABSENT_LEADER;
         state.term += 1;
@@ -138,34 +146,36 @@ impl Machine {
             granted: false,
         };
 
-        let election_timeout = random_timeout();
+        // let election_timeout = random_timeout();
         self.timeout = election_timeout;
+        let peers = self.peers.clone();
 
-        collect_votes(
-            &self.peers,
-            req,
-            send_votes,
-            connection_dialer,
-            election_timeout,
-        );
+        thread::spawn(move || {
+            collect_votes(&peers, req, send_votes, dialer, election_timeout);
+        });
+
+        let cluster_size = self.peers.len() + 1; // peers + self
+        let majority = cluster_size / 2 + 1;
 
         loop {
             select! {
                 recv(recv_votes) -> granted_votes => {
                     let collected_votes = granted_votes.unwrap() as usize;
-                    let majority = (self.peers.len() / 2) + 1;
                     println!("granted_votes: {}, majority: {}", collected_votes, majority);
                     if collected_votes >= majority  {
                         return RaftState::Leader;
                     } else {
-                        return RaftState::Candidate;
+                        return RaftState::Follower;
                     }
                 },
 
                 recv(self.network) -> incoming_envelope => {
-                    let envelope = incoming_envelope.unwrap();
+                    let envelope = match incoming_envelope {
+                        Ok(env) => env,
+                        Err(err) => {println!("err: {}", err); continue;},
+                    };
                     println!("candidate recvd envelope: {:?}", envelope);
-                    unimplemented!();
+                    // unimplemented!();
                 }
             };
         }
@@ -207,57 +217,134 @@ fn collect_votes(
     dialer: Dialer,
     election_timeout: Duration,
 ) {
-    let (tx, rx) = channel::unbounded::<()>();
+    let (vote_tx, vote_rx) = channel::unbounded::<()>();
 
-    println!(" collecting votes....");
     for peer in peers {
         let addr = peer.clone();
-        let increment_votes = tx.clone();
-
+        let tx = vote_tx.clone();
         let rpc = RPC::Vote(req.clone());
         thread::spawn(move || {
-            match dialer(&addr, rpc, increment_votes) {
-                Ok(_) => {}
-                Err(err) => println!("dialer failed: {}", err),
-            };
+            if let Err(err) = dialer(&addr, rpc, tx) {
+                println!("dialer failed: {}", err);
+            }
         });
     }
+    drop(vote_tx);
 
-    drop(tx);
-    let (_, reset_timer_recv) = channel::unbounded::<()>();
-    let (timeout_elapsed_sender, timeout_elapsed_recv) = channel::unbounded::<()>();
+    let cluster_size = peers.len() + 1; // peers + self
+    let majority = cluster_size / 2 + 1;
+    let mut granted: u64 = 1; // vote for self
+    let timeout = channel::after(election_timeout);
 
-    std::thread::spawn(move || {
-        start_timer(election_timeout, reset_timer_recv, timeout_elapsed_sender)
-    });
-    let mut granted_votes = 1;
-
-    loop {
+    while (granted as usize) < majority {
         select! {
-            recv(rx) -> _new_vote  => {
-                granted_votes+=1;
-            }
-
-            recv(timeout_elapsed_recv) -> _timeout_elpased => {
+            recv(vote_rx) -> msg => match msg {
+                Ok(()) => granted += 1,
+                Err(_) => break, // all peers responded
+            },
+            recv(timeout) -> _ => {
                 break;
             }
         }
     }
-    println!(
-        "granted:{}, majority {}",
-        granted_votes,
-        (peers.len() / 2) + 1
-    );
 
-    votes.send(granted_votes).unwrap();
+    let _ = votes.send(granted);
+}
+
+#[cfg(test)]
+fn test_dialer_granted_votes(_addr: &String, _req: RPC, sender: Sender<()>) -> Result<()> {
+    sender.send(())?;
+    Ok(())
+}
+
+#[cfg(test)]
+fn test_dialer_denies_votes(_addr: &String, _req: RPC, _sender: Sender<()>) -> Result<()> {
+    Ok(())
 }
 
 mod tests {
     #[allow(unused)]
     use super::*;
+    const TIMEOUT_SECS: u64 = 2;
 
     #[test]
     fn test_collect_votes() {
+        let node_id: u64 = 1;
+        let state = State::new(node_id);
+        let (send_votes, recv_votes) = channel::unbounded();
+
+        // needs to be more than 2 peers
+        let peers = vec![
+            String::from("localhost:9000"),
+            String::from("localhost:1738"),
+        ];
+
+        let req = VoteRPC {
+            id: state.id,
+            previous_log_index: state.previous_log_index,
+            previous_log_term: state.previous_log_term,
+            term: state.term,
+            granted: false,
+        };
+
+        thread::spawn(move || {
+            collect_votes(
+                &peers,
+                req,
+                send_votes,
+                test_dialer_granted_votes,
+                Duration::from_secs(TIMEOUT_SECS),
+            );
+        });
+
+        let votes = match recv_votes.recv() {
+            Ok(v) => v,
+            Err(err) => {
+                println!(
+                    "could not collect votes for test_collect_votes with: {}",
+                    err
+                );
+                return;
+            }
+        };
+        assert_eq!(votes, 2);
+    }
+
+    #[test]
+    fn test_candidate_transitons_to_follower_after_loosing_electoin() {
+        let node_id: u64 = 1;
+        let mut state = State::new(node_id);
+        let (_, rx) = channel::unbounded();
+        let peers = vec![String::from("localhost:9000")];
+        let mut machine = Machine::new(1, String::from(""), rx, peers);
+        let rs = machine.run_candidate(
+            &mut state,
+            test_dialer_denies_votes,
+            Duration::from_secs(TIMEOUT_SECS),
+        );
+
+        assert_eq!(rs, RaftState::Follower);
+    }
+
+    #[test]
+    fn test_candidate_transitons_to_leader_after_winning_election() {
+        let node_id: u64 = 1;
+        let mut state = State::new(node_id);
+        let (_, rx) = channel::unbounded();
+
+        // needs to be more than 2 peers
+        let peers = vec![
+            String::from("localhost:9000"),
+            String::from("localhost:9001"),
+        ];
+        let mut machine = Machine::new(1, String::from(""), rx, peers);
+        let rs = machine.run_candidate(
+            &mut state,
+            test_dialer_granted_votes,
+            Duration::from_secs(TIMEOUT_SECS),
+        );
+
+        assert_eq!(rs, RaftState::Leader)
     }
 
     #[test]
@@ -268,7 +355,11 @@ mod tests {
         let peers = vec![String::from("localhost:9000")];
         let mut machine = Machine::new(1, String::from(""), rx, peers);
         for _ in 0..3 {
-            machine.run_candidate(&mut state);
+            machine.run_candidate(
+                &mut state,
+                test_dialer_granted_votes,
+                Duration::from_secs(TIMEOUT_SECS),
+            );
         }
 
         let expected_state = State {

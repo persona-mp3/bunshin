@@ -13,7 +13,7 @@ pub mod utils;
 /// has no leader, or is in Candidate state
 pub const ABSENT_LEADER: i32 = -1;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum RaftState {
     Leader,
     Follower,
@@ -23,8 +23,8 @@ pub enum RaftState {
 
 #[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq)]
 pub struct Entry {
-    pub index: u32,
-    pub term: u32,
+    pub index: u64,
+    pub term: u64,
     pub command: Command,
 }
 
@@ -61,10 +61,10 @@ impl Node {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct State {
     pub id: u64,
-    pub previous_log_index: u32,
-    pub previous_log_term: u32,
+    pub previous_log_index: u64,
+    pub previous_log_term: u64,
     pub entries: Vec<Entry>,
-    pub commit_index: u32,
+    pub commit_index: u64,
     /// log entries and state of the node is stored
     file_name: String,
     /// when current-leader is -1, no leader has being selected
@@ -98,7 +98,7 @@ impl State {
     /// to `self.stop`. If no logs exists within such range, it returns the current
     /// value of `self.commit`. Otherwise it returns the index of the latest log
     /// that has been persisted
-    fn persist_till(&self, stop: u32) -> Result<u32> {
+    fn persist_till(&self, stop: u64) -> Result<u64> {
         let mut actual_stop_index = 0;
         let file = File::options()
             .create(true)

@@ -1,7 +1,8 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use crossbeam::channel::{self, Sender};
 use serde_json;
+use std::error::Error;
 use std::io::{BufReader, BufWriter, Write};
 use std::net::{TcpListener, TcpStream};
 use std::time::Duration;
@@ -25,7 +26,17 @@ fn main() -> Result<()> {
     let args = Cli::parse();
     let address = format!("localhost:{}", args.port);
     let (network_sender, network_receiver) = channel::unbounded::<state_machine::Envelope>();
-    let mut machine = state_machine::Machine::new(args.node_id, address.clone(), network_receiver);
+
+    let peers = match parse_peers(&address, args.peers) {
+        Ok(peers) => peers,
+        Err(err) => {
+            eprintln!("failed to parse peer addresses: {}", err);
+            return Ok(());
+        }
+    };
+
+    let mut machine =
+        state_machine::Machine::new(args.node_id, address.clone(), network_receiver, peers);
 
     std::thread::spawn(move || {
         let state = State::new(args.node_id);
@@ -76,4 +87,38 @@ fn handle_conn(conn: TcpStream, state_sender: Sender<state_machine::Envelope>) -
         writer.flush()?;
     }
     Ok(())
+}
+
+fn parse_peers(
+    listen_addr: &String,
+    raw_peer: Option<Vec<String>>,
+) -> Result<Vec<String>, Box<dyn Error>> {
+    use std::net::ToSocketAddrs;
+    let peers = if let Some(peers) = raw_peer {
+        peers
+    } else {
+        return Ok(Vec::new());
+    };
+
+    if peers.len() == 0 {
+        return Ok(peers);
+    }
+
+    let mut parsed_addrs = vec![];
+
+    for (idx, port) in peers.as_slice().iter().enumerate() {
+        let addr = format!("localhost:{}", port);
+        if addr == listen_addr.as_str() {
+            let msg = format!("cannot use self.addr as a peer at index: {}", idx);
+            return Err(msg.into());
+        }
+        addr.as_str()
+            .to_socket_addrs()?
+            .next()
+            .context("invalid address provided for peer")?;
+
+        parsed_addrs.push(addr)
+    }
+
+    return Ok(parsed_addrs);
 }

@@ -5,7 +5,7 @@ use std::io::{BufReader, BufWriter, Write};
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct CommandReply {
     pub value: String,
     pub success: bool,
@@ -107,7 +107,7 @@ impl AppendEntry {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RPC {
     AppendEntry(AppendEntry),
@@ -295,6 +295,7 @@ mod tests {
             file_name: String::from("node-2-persist.json"),
             term: higher_term,
             entries: Vec::new(),
+            vote: 0,
         };
         assert_eq!(
             expected_state, node_state,
@@ -347,6 +348,7 @@ mod tests {
             file_name: String::from("node-2-persist.json"),
             term: higher_term,
             entries: Vec::new(),
+            vote: 0,
         };
         assert_eq!(
             expected_state, node_state,

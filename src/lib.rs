@@ -9,6 +9,10 @@ pub mod state_machine;
 pub const TIMEOUT: u64 = 10;
 pub mod utils;
 
+/// Sentinel value to represent that the node has just being initialised and
+/// has no leader, or is in Candidate state
+pub const ABSENT_LEADER: i32 = -1;
+
 #[derive(Debug, Clone)]
 pub enum RaftState {
     Leader,
@@ -61,10 +65,13 @@ pub struct State {
     pub previous_log_term: u32,
     pub entries: Vec<Entry>,
     pub commit_index: u32,
+    /// log entries and state of the node is stored
     file_name: String,
-    // when current-leader is -1, no leader has being selected
+    /// when current-leader is -1, no leader has being selected
     pub current_leader: i32,
     pub term: u64,
+    /// vote is granted to a new candidate for a new term
+    pub vote: u64,
 }
 
 impl State {
@@ -83,6 +90,7 @@ impl State {
             file_name,
             current_leader: -1,
             term: 0,
+            vote: 0,
         }
     }
 

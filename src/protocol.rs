@@ -14,10 +14,10 @@ pub struct CommandReply {
 #[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Clone)]
 pub struct AppendEntry {
     pub id: u64,
-    pub previous_log_index: u32,
-    pub previous_log_term: u32,
+    pub previous_log_index: u64,
+    pub previous_log_term: u64,
     #[serde(default = "default_commit_index")]
-    pub commit_index: u32,
+    pub commit_index: u64,
     pub entry: Option<Entry>,
     pub success: bool,
     pub info: Option<String>,
@@ -239,11 +239,11 @@ fn handle_command_rpc(state: &mut State, command: &Command) -> CommandReply {
     }
 }
 
-fn default_commit_index() -> u32 {
+fn default_commit_index() -> u64 {
     0
 }
 
-pub fn check_log_consistency(state: &State, prev_log_index: u32, prev_log_term: u32) -> bool {
+pub fn check_log_consistency(state: &State, prev_log_index: u64, prev_log_term: u64) -> bool {
     if state.previous_log_index == prev_log_index && state.previous_log_term == prev_log_term {
         return true;
     }

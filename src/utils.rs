@@ -19,9 +19,11 @@ pub fn start_timer(
     loop {
         let remain = deadline.saturating_duration_since(time::Instant::now());
         select! {
-            recv(reset_timer_recv) -> _s => {
-                deadline = Instant::now() + timeout;
-                println!("resetting timer...");
+            recv(reset_timer_recv) -> sig => {
+                match sig {
+                    Ok(_) => { deadline = Instant::now() + timeout },
+                    Err(_) => { println!("reset_timer_channel disconnected"); return; },
+                }
             },
 
             default(remain) => {
@@ -31,6 +33,7 @@ pub fn start_timer(
                         println!("error occured: {}", err);
                     }
                 };
+                println!("    timer elapsed");
                 return;
             }
         }
@@ -39,8 +42,8 @@ pub fn start_timer(
 
 pub fn random_timeout() -> time::Duration {
     let mut rng = rand::rng();
-    let timeout = rng.random_range(5..10);
-    Duration::from_secs(timeout)
+    let timeout = rng.random_range(500..1000);
+    Duration::from_millis(timeout)
 }
 
 pub fn send_and_recv<R: Iterator<Item = serde_json::Result<protocol::RPC>>>(

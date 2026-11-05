@@ -1,49 +1,51 @@
 use crate::protocol;
 use anyhow::{Context, Result, anyhow};
-use crossbeam::channel::{Receiver, Sender, select};
+// use crossbeam::channel::{Receiver, Sender, select};
 use rand::RngExt;
 use serde_json;
 
 use std::{
     io::{BufWriter, Write},
     net::TcpStream,
-    time::{self, Duration, Instant},
+    time::{self, Duration},
 };
 
-pub fn start_timer(
-    timeout: time::Duration,
-    reset_timer_recv: Receiver<()>,
-    timeout_elapsed_signal: Sender<()>,
-) {
-    let mut deadline = Instant::now() + timeout;
-    loop {
-        let remain = deadline.saturating_duration_since(time::Instant::now());
-        select! {
-            recv(reset_timer_recv) -> sig => {
-                match sig {
-                    Ok(_) => { deadline = Instant::now() + timeout },
-                    Err(_) => { println!("reset_timer_channel disconnected"); return; },
-                }
-            },
+// pub fn start_timer(
+//     timeout: time::Duration,
+//     reset_timer_recv: Receiver<()>,
+//     timeout_elapsed_signal: Sender<()>,
+// ) {
+//     let mut deadline = Instant::now() + timeout;
+//     loop {
+//         let remain = deadline.saturating_duration_since(time::Instant::now());
+//         select! {
+//             recv(reset_timer_recv) -> sig => {
+//                 match sig {
+//                     Ok(_) => { deadline = Instant::now() + timeout },
+//                     Err(_) => { println!("reset_timer_channel disconnected"); return; },
+//                 }
+//             },
+//
+//             default(remain) => {
+//                 match timeout_elapsed_signal.send_timeout((), time::Duration::from_secs(3)) {
+//                     Ok(_) => {},
+//                     Err(err) => {
+//                         println!("error occured: {}", err);
+//                     }
+//                 };
+//                 println!("    timer elapsed");
+//                 return;
+//             }
+//         }
+//     }
+// }
 
-            default(remain) => {
-                match timeout_elapsed_signal.send_timeout((), time::Duration::from_secs(3)) {
-                    Ok(_) => {},
-                    Err(err) => {
-                        println!("error occured: {}", err);
-                    }
-                };
-                println!("    timer elapsed");
-                return;
-            }
-        }
-    }
-}
-
+/// random_timeout returns a timeout range of 1-5 in secs. The long range
+/// is to accomade e2e tests and external test scripts that rely on it
 pub fn random_timeout() -> time::Duration {
     let mut rng = rand::rng();
-    let timeout = rng.random_range(500..1000);
-    Duration::from_millis(timeout)
+    let timeout = rng.random_range(1..5);
+    Duration::from_secs(timeout)
 }
 
 pub fn send_and_recv<R: Iterator<Item = serde_json::Result<protocol::RPC>>>(

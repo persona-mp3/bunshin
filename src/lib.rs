@@ -3,14 +3,10 @@ use crossbeam::channel::{self, Sender};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufWriter, Write};
-use std::net::TcpListener;
-use std::sync::{Arc, Mutex};
-use std::thread;
 
 pub mod protocol;
 pub mod state_machine;
 pub const TIMEOUT: u64 = 10;
-pub mod machine;
 pub mod utils;
 
 #[derive(Debug, Clone)]

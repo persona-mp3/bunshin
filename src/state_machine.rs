@@ -1,11 +1,19 @@
-use anyhow::Context;
+use anyhow::{Context, Result};
 use crossbeam::channel::{self, Receiver, Sender, select};
-use serde::{Deserialize, Serialize};
-use std::time::Duration;
+use std::{
+    io::{BufReader, BufWriter},
+    net::TcpStream,
+    thread,
+    time::Duration,
+};
 
-use crate::protocol::RPC;
-use crate::utils::{random_timeout, start_timer};
-use crate::{ABSENT_LEADER, RaftState, State};
+use serde_json;
+
+use crate::utils::{random_timeout, send_and_recv, start_timer};
+use crate::{
+    ABSENT_LEADER, RaftState, State,
+    protocol::{self, RPC, VoteRPC},
+};
 
 #[derive(Debug, Clone)]
 pub struct Envelope {
@@ -120,72 +128,137 @@ impl Machine {
             return RaftState::Shutdown;
         };
 
-        let won = collect_votes(
-            self.id,
+        let (send_votes, recv_votes) = channel::unbounded::<u64>();
+
+        let req = VoteRPC {
+            id: self.id,
+            term: state.term,
+            previous_log_index: state.previous_log_index as u64,
+            previous_log_term: state.previous_log_term as u64,
+            granted: false,
+        };
+
+        let election_timeout = random_timeout();
+        self.timeout = election_timeout;
+
+        collect_votes(
             &self.peers,
-            state.term,
-            state.previous_log_index,
-            state.previous_log_term,
+            req,
+            send_votes,
+            connection_dialer,
+            election_timeout,
         );
 
-        if won {
-            RaftState::Leader
-        } else {
-            RaftState::Follower
+        loop {
+            select! {
+                recv(recv_votes) -> granted_votes => {
+                    let collected_votes = granted_votes.unwrap() as usize;
+                    let majority = (self.peers.len() / 2) + 1;
+                    println!("granted_votes: {}, majority: {}", collected_votes, majority);
+                    if collected_votes >= majority  {
+                        return RaftState::Leader;
+                    } else {
+                        return RaftState::Candidate;
+                    }
+                },
+
+                recv(self.network) -> incoming_envelope => {
+                    let envelope = incoming_envelope.unwrap();
+                    println!("candidate recvd envelope: {:?}", envelope);
+                    unimplemented!();
+                }
+            };
         }
-
-        // let (reset_timer_sender, reset_timer_recv) = channel::unbounded::<()>();
-        // let (timeout_elapsed_sender, timeout_elapsed_recv) = channel::unbounded::<()>();
-        //
-        // std::thread::spawn(move || {
-        //     start_timer(election_timeout, reset_timer_recv, timeout_elapsed_sender)
-        // });
-
-        // loop {
-        //     select! {
-        //         recv(self.network) -> incoming => {
-        //             let envelope = incoming.unwrap();
-        //             match envelope.rpc {
-        //                 RPC::AppendEntry(req) => {
-        //                 },
-        //                 _ => {},
-        //             }
-        //         }
-        //     }
-        // }
 
         // RaftState::Shutdown
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct VoteRPC {
-    id: u64,
-    previous_log_index: u64,
-    previous_log_term: u64,
-}
+type Dialer = fn(addr: &String, req: RPC, sender: Sender<()>) -> Result<()>;
 
-impl VoteRPC {
-    pub fn handle(&self, _state: &mut State) {
-        unimplemented!()
+fn connection_dialer(addr: &String, req: RPC, sender: Sender<()>) -> Result<()> {
+    let conn = TcpStream::connect(addr)
+        .context("could not connect with peer")
+        .unwrap();
+
+    let mut writer = BufWriter::new(conn.try_clone().unwrap());
+    let reader = BufReader::new(conn);
+    let mut reader = serde_json::Deserializer::from_reader(reader).into_iter::<protocol::RPC>();
+    let reply = send_and_recv(&req, &mut writer, &mut reader)?;
+
+    match &reply {
+        RPC::Vote(rpc_reply) => {
+            if rpc_reply.granted {
+                let _ = sender.send(()).context("could not send granted vote");
+            };
+        }
+        _ => {
+            panic!("unhandled reply: {:?}", reply);
+        }
     }
+
+    Ok(())
 }
 
-#[allow(unused)]
 fn collect_votes(
-    id: u64,
-    peers: &Vec<String>,
-    term: u64,
-    prev_log_index: u32,
-    prev_log_term: u32,
-) -> bool {
+    peers: &[String],
+    req: VoteRPC,
+    votes: Sender<u64>,
+    dialer: Dialer,
+    election_timeout: Duration,
+) {
+    let (tx, rx) = channel::unbounded::<()>();
+
     println!(" collecting votes....");
-    false
+    for peer in peers {
+        let addr = peer.clone();
+        let increment_votes = tx.clone();
+
+        let rpc = RPC::Vote(req.clone());
+        thread::spawn(move || {
+            match dialer(&addr, rpc, increment_votes) {
+                Ok(_) => {}
+                Err(err) => println!("dialer failed: {}", err),
+            };
+        });
+    }
+
+    drop(tx);
+    let (_, reset_timer_recv) = channel::unbounded::<()>();
+    let (timeout_elapsed_sender, timeout_elapsed_recv) = channel::unbounded::<()>();
+
+    std::thread::spawn(move || {
+        start_timer(election_timeout, reset_timer_recv, timeout_elapsed_sender)
+    });
+    let mut granted_votes = 1;
+
+    loop {
+        select! {
+            recv(rx) -> _new_vote  => {
+                granted_votes+=1;
+            }
+
+            recv(timeout_elapsed_recv) -> _timeout_elpased => {
+                break;
+            }
+        }
+    }
+    println!(
+        "granted:{}, majority {}",
+        granted_votes,
+        (peers.len() / 2) + 1
+    );
+
+    votes.send(granted_votes).unwrap();
 }
 
 mod tests {
     #[allow(unused)]
     use super::*;
+
+    #[test]
+    fn test_collect_votes() {
+    }
 
     #[test]
     fn test_candidate_updates_state_for_voting() {

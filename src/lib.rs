@@ -6,17 +6,19 @@ use std::io::{BufWriter, Write};
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
 
 pub mod protocol;
+pub mod state_machine;
 pub const TIMEOUT: u64 = 10;
 pub mod machine;
+pub mod utils;
 
 #[derive(Debug, Clone)]
 pub enum RaftState {
     Leader,
     Follower,
     Candidate,
+    Shutdown,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq)]
@@ -159,65 +161,5 @@ impl State {
 
         self.entries.push(entry.clone());
         entry
-    }
-}
-
-fn start_server(addr: String, node: Arc<Mutex<Node>>) -> Result<()> {
-    let listener = TcpListener::bind(&addr)?;
-    for stream in listener.incoming() {
-        if let Ok(conn) = stream {
-            let conn_node = Arc::clone(&node);
-            thread::spawn(|| {
-                if let Err(err) = protocol::handle_conn(conn, conn_node) {
-                    println!("error handling connection: {err}");
-                };
-            });
-        } else {
-            println!("error accepting connection: {:?}", stream.err().unwrap());
-            continue;
-        };
-    }
-    Ok(())
-}
-
-pub fn run(out: Node) -> Result<()> {
-    let addr = out.addr.clone();
-    let node = Arc::new(Mutex::new(out));
-
-    let server_clone = Arc::clone(&node);
-
-    thread::spawn(move || {
-        // always want to panic if the server stops
-        start_server(addr, server_clone).unwrap();
-    });
-
-    let mut current_raft_state = RaftState::Follower;
-
-    loop {
-        current_raft_state = match current_raft_state {
-            RaftState::Leader => {
-                let mut n = node.lock().unwrap();
-                machine::run_leader(&mut n.state)?
-            }
-
-            RaftState::Follower => {
-                let (send_reset_timer, receiver_reset_timer) = channel::unbounded();
-
-                {
-                    let mut n = node.lock().unwrap();
-                    n.reset_timer = send_reset_timer;
-                }
-
-                let timeout = Duration::from_secs(TIMEOUT);
-
-                machine::run_follower(timeout, receiver_reset_timer).unwrap()
-            }
-
-            RaftState::Candidate => {
-                let mut n = node.lock().unwrap();
-
-                machine::run_candidate(&mut n.state)?
-            }
-        };
     }
 }

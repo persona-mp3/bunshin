@@ -9,7 +9,7 @@ use std::{
 
 use serde_json;
 
-use crate::utils::{random_timeout, send_and_recv, start_timer};
+use crate::utils::{random_timeout, send_and_recv};
 use crate::{
     ABSENT_LEADER, RaftState, State,
     protocol::{self, RPC, VoteRPC},
@@ -73,13 +73,7 @@ impl Machine {
         let new_timeout = random_timeout();
         self.timeout = new_timeout;
 
-        let (reset_timer_sender, reset_timer_recv) = channel::unbounded::<()>();
-        let (timeout_elapsed_sender, timeout_elapsed_recv) = channel::unbounded::<()>();
-
-        std::thread::spawn(move || {
-            start_timer(new_timeout, reset_timer_recv, timeout_elapsed_sender)
-        });
-
+        let mut timeout = channel::after(new_timeout);
         loop {
             select! {
                 recv(self.network) -> incoming => {
@@ -91,7 +85,7 @@ impl Machine {
                             let reply = req.handle(state).unwrap();
 
                             if reply.success {
-                                 reset_timer_sender.send(()).context("failed to send reset timer from run_follower").unwrap();
+                                timeout = channel::after(new_timeout);
                             }
 
                             match envelope.sender.send(RPC::AppendEntry(reply)) {
@@ -107,7 +101,8 @@ impl Machine {
                     }
                 },
 
-                recv(timeout_elapsed_recv) -> _sig => {
+
+                recv(timeout) -> _sig => {
                     return RaftState::Candidate;
                 },
 
@@ -132,8 +127,9 @@ impl Machine {
         );
 
         if self.peers.len() == 0 {
+            // TODO: For testing, we'll leave it as this
             println!("no peers to contact: {:?}", self.peers);
-            return RaftState::Shutdown;
+            return RaftState::Follower;
         };
 
         let (send_votes, recv_votes) = channel::unbounded::<u64>();

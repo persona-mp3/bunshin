@@ -21,12 +21,9 @@ run_e2e_tests() {
 	run_command ./infra --nodes 3000
 	run_command ./tester --node-id 1 --port 3000
 
-	run_command echo "removing stale binaries $PWD"
-
 	printf "\ndone running e2e_tests\n"
 	run_command ./infra stop-all
 
-	pkill bunshin
 }
 
 run_e2e_tests

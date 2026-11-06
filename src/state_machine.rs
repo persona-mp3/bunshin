@@ -126,7 +126,7 @@ impl Machine {
             state.term, state.current_leader,
         );
 
-        if self.peers.len() == 0 {
+        if self.peers.is_empty() {
             // TODO: For testing, we'll leave it as this
             println!("no peers to contact: {:?}", self.peers);
             return RaftState::Follower;
@@ -137,8 +137,8 @@ impl Machine {
         let req = VoteRPC {
             id: self.id,
             term: state.term,
-            previous_log_index: state.previous_log_index as u64,
-            previous_log_term: state.previous_log_term as u64,
+            previous_log_index: state.previous_log_index,
+            previous_log_term: state.previous_log_term,
             granted: false,
         };
 

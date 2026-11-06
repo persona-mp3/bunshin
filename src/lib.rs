@@ -14,149 +14,149 @@ pub const ABSENT_LEADER: i32 = -1;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum RaftState {
-    Leader,
-    Follower,
-    Candidate,
-    Shutdown,
+  Leader,
+  Follower,
+  Candidate,
+  Shutdown,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq)]
 pub struct Entry {
-    pub index: u64,
-    pub term: u64,
-    pub command: Command,
+  pub index: u64,
+  pub term: u64,
+  pub command: Command,
 }
 
 impl Default for Entry {
-    /// Returns an entry with index and term initialised as 0
-    /// operation as "set", key as "init" and value as "init_value"
-    fn default() -> Self {
-        Entry {
-            index: 0,
-            term: 0,
-            command: Command {
-                key: "init".to_string(),
-                value: "init_value".to_string(),
-                operation: "set".to_string(),
-            },
-        }
+  /// Returns an entry with index and term initialised as 0
+  /// operation as "set", key as "init" and value as "init_value"
+  fn default() -> Self {
+    Entry {
+      index: 0,
+      term: 0,
+      command: Command {
+        key: "init".to_string(),
+        value: "init_value".to_string(),
+        operation: "set".to_string(),
+      },
     }
+  }
 }
 
 /// Commands are sent by external clients
 #[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq)]
 pub struct Command {
-    pub key: String,
-    pub value: String,
-    pub operation: String,
+  pub key: String,
+  pub value: String,
+  pub operation: String,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct State {
-    pub id: u64,
-    pub previous_log_index: u64,
-    pub previous_log_term: u64,
-    pub entries: Vec<Entry>,
-    pub commit_index: u64,
-    /// log entries and state of the node is stored
-    file_name: String,
-    /// when current-leader is -1, no leader has being selected
-    pub current_leader: i32,
-    pub term: u64,
-    /// vote is granted to a new candidate for a new term
-    pub vote: i64,
+  pub id: u64,
+  pub previous_log_index: u64,
+  pub previous_log_term: u64,
+  pub entries: Vec<Entry>,
+  pub commit_index: u64,
+  /// log entries and state of the node is stored
+  file_name: String,
+  /// when current-leader is -1, no leader has being selected
+  pub current_leader: i32,
+  pub term: u64,
+  /// vote is granted to a new candidate for a new term
+  pub vote: i64,
 }
 
 impl State {
-    pub fn new(id: u64) -> State {
-        let previous_log_index = 0;
-        let previous_log_term = 0;
-        let entries: Vec<Entry> = vec![];
-        let file_name = format!("node-{}-persist.json", id);
+  pub fn new(id: u64) -> State {
+    let previous_log_index = 0;
+    let previous_log_term = 0;
+    let entries: Vec<Entry> = vec![];
+    let file_name = format!("node-{}-persist.json", id);
 
-        State {
-            id,
-            commit_index: 0,
-            previous_log_index,
-            previous_log_term,
-            entries,
-            file_name,
-            current_leader: -1,
-            term: 0,
-            vote: 0,
-        }
+    State {
+      id,
+      commit_index: 0,
+      previous_log_index,
+      previous_log_term,
+      entries,
+      file_name,
+      current_leader: -1,
+      term: 0,
+      vote: 0,
     }
+  }
 
-    /// persist_till flushes logs to `self.file` starting from `self.commit` up
-    /// to `self.stop`. If no logs exists within such range, it returns the current
-    /// value of `self.commit`. Otherwise it returns the index of the latest log
-    /// that has been persisted
-    fn persist_till(&self, stop: u64) -> Result<u64> {
-        let mut actual_stop_index = 0;
-        let file = File::options()
-            .create(true)
-            .append(true)
-            .open(&self.file_name)?;
+  /// persist_till flushes logs to `self.file` starting from `self.commit` up
+  /// to `self.stop`. If no logs exists within such range, it returns the current
+  /// value of `self.commit`. Otherwise it returns the index of the latest log
+  /// that has been persisted
+  fn persist_till(&self, stop: u64) -> Result<u64> {
+    let mut actual_stop_index = 0;
+    let file = File::options()
+      .create(true)
+      .append(true)
+      .open(&self.file_name)?;
 
-        let mut writer = BufWriter::new(file);
+    let mut writer = BufWriter::new(file);
 
-        if let Some(volatile_logs) = self
-            .entries
-            .get(self.commit_index as usize..stop as usize + 1)
-        // to make it inclusive we add 1
-        {
-            for log in volatile_logs.iter() {
-                let json = serde_json::to_string(log);
-                if let Ok(value) = json {
-                    if let Err(err) = serde_json::to_writer_pretty(&mut writer, &value) {
-                        eprintln!("failed to persist: {:?}, {:?}, json: {:?}", err, log, value);
-                        continue;
-                    }
+    if let Some(volatile_logs) = self
+      .entries
+      .get(self.commit_index as usize..stop as usize + 1)
+    // to make it inclusive we add 1
+    {
+      for log in volatile_logs.iter() {
+        let json = serde_json::to_string(log);
+        if let Ok(value) = json {
+          if let Err(err) = serde_json::to_writer_pretty(&mut writer, &value) {
+            eprintln!("failed to persist: {:?}, {:?}, json: {:?}", err, log, value);
+            continue;
+          }
 
-                    writer.write_all(b"\n")?;
-                } else {
-                    eprintln!("could not marshall: {:?}, {:?}", json.unwrap(), log);
-                    continue;
-                }
-
-                actual_stop_index = log.index;
-            }
+          writer.write_all(b"\n")?;
         } else {
-            println!("nothing to update");
-            return Ok(self.commit_index);
+          eprintln!("could not marshall: {:?}, {:?}", json.unwrap(), log);
+          continue;
         }
 
-        Ok(actual_stop_index)
+        actual_stop_index = log.index;
+      }
+    } else {
+      println!("nothing to update");
+      return Ok(self.commit_index);
     }
 
-    fn has_key(&self, key: &String) -> Option<Command> {
-        for entry in self.entries.iter().rev() {
-            if entry.command.key == *key {
-                if entry.command.operation == "rm" {
-                    return None;
-                }
-                return Some(entry.command.clone());
-            };
+    Ok(actual_stop_index)
+  }
+
+  fn has_key(&self, key: &String) -> Option<Command> {
+    for entry in self.entries.iter().rev() {
+      if entry.command.key == *key {
+        if entry.command.operation == "rm" {
+          return None;
         }
-        None
+        return Some(entry.command.clone());
+      };
     }
+    None
+  }
 
-    fn append_entry(&mut self, entry: Entry) {
-        self.previous_log_index = entry.index;
-        self.previous_log_term = entry.term;
-        self.entries.push(entry);
-    }
+  fn append_entry(&mut self, entry: Entry) {
+    self.previous_log_index = entry.index;
+    self.previous_log_term = entry.term;
+    self.entries.push(entry);
+  }
 
-    fn append_new_command(&mut self, cmd: &Command) -> Entry {
-        self.previous_log_index += 1;
+  fn append_new_command(&mut self, cmd: &Command) -> Entry {
+    self.previous_log_index += 1;
 
-        let entry = Entry {
-            index: self.previous_log_index,
-            term: self.previous_log_term,
-            command: cmd.clone(),
-        };
+    let entry = Entry {
+      index: self.previous_log_index,
+      term: self.previous_log_term,
+      command: cmd.clone(),
+    };
 
-        self.entries.push(entry.clone());
-        entry
-    }
+    self.entries.push(entry.clone());
+    entry
+  }
 }

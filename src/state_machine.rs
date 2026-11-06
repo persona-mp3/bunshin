@@ -3,6 +3,7 @@ use crossbeam::channel::{self, Receiver, Sender, select};
 use std::{
     io::{BufReader, BufWriter},
     net::TcpStream,
+    sync::{Arc, Mutex},
     thread,
     time::Duration,
 };
@@ -63,12 +64,8 @@ impl Machine {
 
                 RaftState::Leader => self.run_leader(&mut state),
 
-                _ => {
-                    println!(
-                        "Shutdown:{} \t{:?} state not yet implemented",
-                        self.id, rstate
-                    );
-                    RaftState::Shutdown
+                RaftState::Shutdown => {
+                    return;
                 }
             }
         }
@@ -253,8 +250,110 @@ impl Machine {
     pub fn run_leader(&mut self, _state: &mut State) -> RaftState {
         println!("Leader:{} \tSimulation 2s of leader work", self.id);
         thread::sleep(Duration::from_secs(2));
+        // needs to keep track of all address of all followers
+        // let shared_state = Arc::new(Mutex::new(state));
+        // for peer_addr in &self.peers {
+        //      let clone = Arc::clone(shared_state);
+        //      NOTE:: they shouldn't be allowed to update this internal state, but // only read from it
+        //      worker_thread(peer_addr, clone);
+        // }
+        // loop {
+        //  select! {
+        //      recv(self.network) -> msg => {
+        //          /* handle network_rpc */
+        //      }
+        //      but also need to track other followers, do we use arc_mutex?
+        //
+        //  }
+        // }
         RaftState::Follower
     }
+}
+
+// not sure::
+#[allow(unused)]
+fn worker_thread(addr: &str, initial_term: u64, state: Arc<Mutex<State>>) {
+    let mut current_state: State;
+    // // might need a better way to initialise this
+    // let mut stop_index = 0;
+    // let mut stop_term = 0;
+    // loop {
+    //  {
+    //      *current_state = state.lock.()
+    //      .with_context(|| format!("failed to acquire lock for worker_thread"))
+    //      .unwrap()
+    //  }
+    //
+    //  // todo: we might need to add RaftState afterall
+    //  if current_state.raft_state != RaftState::Leader {
+    //      return;
+    //  }
+    //
+    //  // YOU: So in Raft, there's this Leader-Follower-Candidate Model
+    //  // when a node is in a leader state, it needs to constantly send
+    //  // `heartbeats` to folower nodes. Each heartbeat is in the form an
+    //  // a request, AppendEntry defined as:
+    //  let req = AppendEntry {
+    //      id: current_state.id,
+    //      previous_log_index: current_state.previous_log_index,
+    //      previous_log_term: current_state.previous_log_term,
+    //      commit_index: current_state.commit_index,
+    //      term: current_state.term,
+    //      entry: None,
+    //      success: false,
+    //      ...
+    //  }
+    //  let reply = make_append_entry_request(ae)?;
+    //
+    //  // the node is now in a higher term and we need to exit
+    //  if reply.term > current_state.term {
+    //      return
+    //  }
+    //
+    //  if reply.sucess {
+    //      continue
+    //  }
+    //
+    //  // at this point log indexs dont match
+    //
+    //  let follower_prev_log_index = reply.previous_log_index;
+    //  let follower_prev_log_term = reply.previous_log_term;
+    //
+    //
+    //  let log = state.log_exists_at_index(index);
+    //  match log {
+    //      Some(entry) => {
+    //          if entry.term != follower_prev_log_term {
+    //              // there seems to be a conflict then?? same index but different terms?
+    //              // let found_entry = Entry { index: 30, term: 3 }
+    //              // from_follower -> Entry {index: 30, term: 11 }
+    //              // well, this shouldn't really happen? Either the follower node collected
+    //              // entries from another one, or those are stale entries? So do we just move back again
+    //              // for force rewrite from here?, but then we need to ask the follower if the
+    //              //  have the one before_found_entry
+    //
+    //              let prev = state.get_prev_log_at_index(found_entry.index);
+    //              stop_index = prev.index;
+    //              stop_term = prev.term;
+    //              send_append_entry(prev)?
+    //
+    //          }
+    //
+    //          // Since both match, we just flush from here till the end or send
+    //          // 1-by-1
+    //          let batch = state.from(entry.index)
+    //          send_append_entry_batch(batch)
+    //          // update the stop indexes and term
+    //
+    //
+    //      }
+    //      None(_) => {
+    //        // todo what do we do if the we don't have any log index that matches?
+    //      }
+    //  }
+    //
+    //
+    // }
 }
 
 type Dialer = fn(addr: &String, req: RPC, sender: Sender<()>) -> Result<()>;

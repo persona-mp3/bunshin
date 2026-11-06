@@ -11,15 +11,31 @@ pub struct CommandReply {
 
 #[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Clone)]
 pub struct AppendEntry {
+    /// the id of the node sending the request
     pub id: u64,
+
+    /// current term of the node sending or receiving
+    pub term: u64,
+
+    /// the previous_log_index of the node
     pub previous_log_index: u64,
+
+    /// the previous_log_term of the node
     pub previous_log_term: u64,
     #[serde(default = "default_commit_index")]
+
+    /// commit_index that tracks which logs are safe to be written to disk
     pub commit_index: u64,
+
+    /// holds a new entry that the leader has received. If
+    /// empty the request is a heartbeat
     pub entry: Option<Entry>,
+
+    /// signifies if the receipient node recognises this node's AppendEntry
     pub success: bool,
+
+    /// additional debugging information
     pub info: Option<String>,
-    pub term: u64,
 }
 
 impl AppendEntry {

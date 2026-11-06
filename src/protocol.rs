@@ -1,12 +1,9 @@
-#![allow(unused)]
-use crate::{Command, Entry, Node, State};
-use anyhow::{Context, Result};
+use crate::{Command, Entry, State};
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
-use std::io::{BufReader, BufWriter, Write};
-use std::net::TcpStream;
-use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+/// CommandReply is sent to external clients
 pub struct CommandReply {
     pub value: String,
     pub success: bool,
@@ -138,111 +135,6 @@ pub enum RPC {
     Vote(VoteRPC),
 }
 
-// pub fn handle_conn(conn: TcpStream, node: Arc<Mutex<Node>>) -> Result<()> {
-//     let reader = BufReader::new(conn.try_clone()?);
-//     let mut writer = BufWriter::new(conn);
-//
-//     let parser = serde_json::Deserializer::from_reader(reader);
-//     for msg in parser.into_iter::<RPC>() {
-//         let rpc_msg = match msg {
-//             Ok(m) => m,
-//             Err(ref err) => {
-//                 println!("error parsing message {:?}, {:?}", err, msg);
-//                 continue;
-//             }
-//         };
-//
-//         match rpc_msg {
-//             RPC::AppendEntry(append_entry) => {
-//                 let mut current_node = node.lock().unwrap();
-//                 let reply = match append_entry.handle(&mut current_node.state) {
-//                     Ok(rep) => rep,
-//                     Err(err) => {
-//                         println!("append_entry reply failed: {}", err);
-//                         continue;
-//                     }
-//                 };
-//
-//                 if reply.success {
-//                     current_node
-//                         .reset_timer
-//                         .send(())
-//                         .expect("could not send to reset timer");
-//                 }
-//
-//                 let rpc_reply = RPC::AppendEntry(reply);
-//                 serde_json::to_writer(&mut writer, &rpc_reply)?;
-//                 writer.write_all(b"\n")?;
-//                 writer.flush()?;
-//             }
-//
-//             RPC::Command(command) => {
-//                 let mut current_node = node.lock().unwrap();
-//                 let reply = handle_command_rpc(&mut current_node.state, &command);
-//                 let rpc_reply = RPC::CommandReply(reply);
-//                 serde_json::to_writer(&mut writer, &rpc_reply)?;
-//                 writer.write_all(b"\n")?;
-//                 writer.flush()?;
-//             }
-//
-//             _ => {
-//                 todo!("unexpected rpc recevied: {:?}", rpc_msg);
-//             }
-//         }
-//     }
-//
-//     Ok(())
-// }
-//
-// fn handle_command_rpc(state: &mut State, command: &Command) -> CommandReply {
-//     let entry_exists = state.has_key(&command.key);
-//
-//     match command.operation.as_str() {
-//         // we just place it in there regardless
-//         "set" => {
-//             state.append_new_command(command);
-//             println!("recvd set request for {:?}", command);
-//             return CommandReply {
-//                 success: true,
-//                 value: command.value.to_string(),
-//             };
-//         }
-//
-//         "rm" => {
-//             // check if we have that value
-//             match entry_exists {
-//                 None => (),
-//                 Some(entry) => {
-//                     state.append_new_command(command);
-//                     return CommandReply {
-//                         success: true,
-//                         value: entry.value,
-//                     };
-//                 }
-//             }
-//         }
-//         "get" => {
-//             // check
-//             match entry_exists {
-//                 None => (),
-//                 Some(entry) => {
-//                     return CommandReply {
-//                         success: true,
-//                         value: entry.value,
-//                     };
-//                 }
-//             }
-//         }
-//         &_ => {
-//             panic!("unexpected operation from command: {:?}", command)
-//         }
-//     }
-//     CommandReply {
-//         value: "not_found".to_string(),
-//         success: false,
-//     }
-// }
-
 fn default_commit_index() -> u64 {
     0
 }
@@ -260,17 +152,7 @@ pub fn is_candidate_log_up_to_date(
     }
 }
 
-// pub fn log_matches(state: &State, prev_log_index: u64, prev_log_term: u64) -> bool {
-//     if prev_log_index == 0 {
-//         return true;
-//     }
-//
-//     let pos = (prev_log_index - 1) as usize;
-//     match state.entries.get(pos)k
-//
-//     // check if we have a term at such index
-// }
-
+// TODO: update this to do a look up on the logs instead
 pub fn check_log_consistency(state: &State, prev_log_index: u64, prev_log_term: u64) -> bool {
     if state.previous_log_index == prev_log_index && state.previous_log_term == prev_log_term {
         return true;
@@ -302,6 +184,7 @@ pub fn verify_leader(current_leader: i32, req_id: i32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::Result;
 
     #[test]
     fn test_append_entry_accepts_higher_term_as_leader() -> Result<()> {

@@ -1,5 +1,4 @@
 use anyhow::Result;
-use crossbeam::channel::{self, Sender};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -29,6 +28,8 @@ pub struct Entry {
 }
 
 impl Default for Entry {
+    /// Returns an entry with index and term initialised as 0
+    /// operation as "set", key as "init" and value as "init_value"
     fn default() -> Self {
         Entry {
             index: 0,
@@ -48,28 +49,6 @@ pub struct Command {
     pub key: String,
     pub value: String,
     pub operation: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct Node {
-    pub id: u64,
-    pub raft_state: RaftState,
-    pub state: State,
-    pub addr: String,
-    pub reset_timer: Sender<()>,
-}
-
-impl Node {
-    pub fn new(id: u64, listen_addr: String) -> Node {
-        let (tx, _) = channel::unbounded();
-        Node {
-            id,
-            addr: listen_addr,
-            state: State::new(id),
-            raft_state: RaftState::Follower,
-            reset_timer: tx,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]

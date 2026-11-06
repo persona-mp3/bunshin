@@ -119,7 +119,7 @@ impl State {
         {
             for log in volatile_logs.iter() {
                 serde_json::to_writer(&mut writer, &log)
-                    .with_context(|| format!("could not persist entry with serde"))?;
+                    .with_context(|| "could not persist entry with serde".to_string())?;
                 writer.write_all(b"\n")?;
                 writer.flush()?;
                 actual_stop_index = log.index;

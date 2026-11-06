@@ -28,6 +28,20 @@ pub struct Entry {
     pub command: Command,
 }
 
+impl Default for Entry {
+    fn default() -> Self {
+        Entry {
+            index: 0,
+            term: 0,
+            command: Command {
+                key: "init".to_string(),
+                value: "init_value".to_string(),
+                operation: "set".to_string(),
+            },
+        }
+    }
+}
+
 /// Commands are sent by external clients
 #[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq)]
 pub struct Command {
@@ -71,7 +85,7 @@ pub struct State {
     pub current_leader: i32,
     pub term: u64,
     /// vote is granted to a new candidate for a new term
-    pub vote: u64,
+    pub vote: i64,
 }
 
 impl State {

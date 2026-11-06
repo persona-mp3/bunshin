@@ -15,6 +15,8 @@ use crate::{
     protocol::{self, RPC, VoteRPC},
 };
 
+pub const CHANNEL_SEND_TIMEOUT_SECS: f64 = 1.5;
+
 #[derive(Debug, Clone)]
 pub struct Envelope {
     pub rpc: RPC,
@@ -50,7 +52,7 @@ impl Machine {
 
     pub fn run(&mut self, mut state: State) {
         let mut rstate = RaftState::Follower;
-        println!("state_machine running");
+        println!("STATE_MACHINE RUNNING....");
         loop {
             rstate = match rstate {
                 RaftState::Follower => self.run_follower(&mut state),
@@ -58,11 +60,14 @@ impl Machine {
                     let election_timeout = random_timeout();
                     self.run_candidate(&mut state, connection_dialer, election_timeout)
                 }
-                RaftState::Shutdown => {
-                    return;
-                }
+
+                RaftState::Leader => self.run_leader(&mut state),
+
                 _ => {
-                    println!("{:?} state not yet implemented", rstate);
+                    println!(
+                        "Shutdown:{} \t{:?} state not yet implemented",
+                        self.id, rstate
+                    );
                     RaftState::Shutdown
                 }
             }
@@ -77,12 +82,12 @@ impl Machine {
         loop {
             select! {
                 recv(self.network) -> incoming => {
-                    let envelope = incoming.unwrap();
+                    let envelope = incoming.context("follower: failed to unwrap envelope").unwrap();
 
                     // do some checks
                     match envelope.rpc {
                         RPC::AppendEntry(req) => {
-                            let reply = req.handle(state).unwrap();
+                            let reply = req.handle(state);
 
                             if reply.success {
                                 timeout = channel::after(new_timeout);
@@ -90,12 +95,42 @@ impl Machine {
 
                             match envelope.sender.send(RPC::AppendEntry(reply)) {
                                 Ok(_) => {},
-                                Err(err) => {println!("failed to send reply. reason:{:?}", err);}
+                                Err(err) => {println!("Follower:{} \tfailed to send reply. reason:{:?}", self.id, err);}
 
                             };
                         },
 
 
+                        RPC::Vote(req) => {
+                            let mut reply = VoteRPC {
+                                id: self.id,
+                                previous_log_index: state.previous_log_index,
+                                previous_log_term: state.previous_log_term,
+                                granted: false,
+                                term: state.term,
+                            };
+
+                            if req.term <= state.term {
+                                let _ = envelope.sender.send_timeout(RPC::Vote(reply), Duration::from_secs_f64(CHANNEL_SEND_TIMEOUT_SECS));
+                                continue;
+                            }
+
+                            let logs_updated = protocol::is_candidate_log_up_to_date(state, req.previous_log_index, req.previous_log_term);
+
+                            if !logs_updated {
+                                println!("Follower:{} \toutdated logs from candidate node: {:?}", self.id, req);
+                                let _ = envelope.sender.send_timeout(RPC::Vote(reply), Duration::from_secs_f64(CHANNEL_SEND_TIMEOUT_SECS));
+                                continue;
+                            }
+
+                            state.current_leader = req.id as i32;
+                            state.term = req.term;
+
+                            reply.granted = true;
+                            reply.term = state.term;
+                            println!("Follower:{} \tgranted vote to new cadidate: {:?}", self.id, req);
+                            let _ = envelope.sender.send_timeout(RPC::Vote(reply), Duration::from_secs_f64(CHANNEL_SEND_TIMEOUT_SECS));
+                        },
                         _ => { panic!("unimplemented for follower: {:?}", envelope.rpc);}
 
                     }
@@ -116,19 +151,21 @@ impl Machine {
         dialer: Dialer,
         election_timeout: Duration,
     ) -> RaftState {
-        println!("resetting leader and updating current_term");
         state.current_leader = ABSENT_LEADER;
         state.term += 1;
-        state.vote = self.id;
+        state.vote = self.id as i64;
 
         println!(
-            "term: {} leader: {}\n contacting followers for new election",
-            state.term, state.current_leader,
+            "Candidate:{} \tNew election for: term: {}",
+            self.id, state.term
         );
 
         if self.peers.is_empty() {
             // TODO: For testing, we'll leave it as this
-            println!("no peers to contact: {:?}", self.peers);
+            println!(
+                "Candidate:{} \tno peers to contact: {:?}",
+                self.id, self.peers
+            );
             return RaftState::Follower;
         };
 
@@ -157,10 +194,11 @@ impl Machine {
             select! {
                 recv(recv_votes) -> granted_votes => {
                     let collected_votes = granted_votes.unwrap() as usize;
-                    println!("granted_votes: {}, majority: {}", collected_votes, majority);
                     if collected_votes >= majority  {
+                    println!("Candidate:{} \tgot majority votes: {}, majority: {}", self.id, collected_votes, majority);
                         return RaftState::Leader;
                     } else {
+                        println!("Candidate:{} \tlost election: {}, majority: {}", self.id, collected_votes, majority);
                         return RaftState::Follower;
                     }
                 },
@@ -170,27 +208,69 @@ impl Machine {
                         Ok(env) => env,
                         Err(err) => {println!("err: {}", err); continue;},
                     };
-                    println!("candidate recvd envelope: {:?}", envelope);
-                    // unimplemented!();
+                    println!("Candidate:{} \tincoming_rpc: {:?}", self.id,  envelope.rpc);
+
+                    match envelope.rpc {
+                        RPC::Vote(ref req) => {
+
+                            let mut reply = VoteRPC {
+                                id: self.id,
+                                term: state.term,
+                                previous_log_index: state.previous_log_index,
+                                previous_log_term: state.previous_log_term,
+                                granted: false,
+
+                            };
+
+                            if req.term > state.term {
+                                state.term = req.term;
+                                reply.granted = true;
+                                reply.term = state.term;
+
+                                let _ = envelope.sender.send_timeout(RPC::Vote(reply), Duration::from_secs_f64(CHANNEL_SEND_TIMEOUT_SECS));
+                                state.vote = ABSENT_LEADER as i64;
+                                state.current_leader = req.id as i32;
+                                println!("Candidate:{} \tgranted vote: to req and assigned as new leader: {:?}", self.id, envelope.rpc);
+                                return RaftState::Follower;
+                            }
+
+
+                            // since we've already voted ourself for this campagin we can't give out votes
+                            println!("Candidate:{} \tdenying vote for request: {:?}", self.id,envelope.rpc);
+                            let _ = envelope.sender.send_timeout(RPC::Vote(reply), Duration::from_secs_f64(CHANNEL_SEND_TIMEOUT_SECS));
+                        }
+
+                        _ => {
+                            println!("not wanted request: {:?}", envelope);
+                        }
+
+                    }
                 }
             };
         }
+    }
 
-        // RaftState::Shutdown
+    pub fn run_leader(&mut self, _state: &mut State) -> RaftState {
+        println!("Leader:{} \tSimulation 2s of leader work", self.id);
+        thread::sleep(Duration::from_secs(2));
+        RaftState::Follower
     }
 }
 
 type Dialer = fn(addr: &String, req: RPC, sender: Sender<()>) -> Result<()>;
 
 fn connection_dialer(addr: &String, req: RPC, sender: Sender<()>) -> Result<()> {
-    let conn = TcpStream::connect(addr)
-        .context("could not connect with peer")
-        .unwrap();
+    let conn = TcpStream::connect(addr).context("could not connect with peer")?;
 
-    let mut writer = BufWriter::new(conn.try_clone().unwrap());
+    let mut writer = BufWriter::new(
+        conn.try_clone()
+            .with_context(|| format!("faied to clone connections' writer"))?,
+    );
+
     let reader = BufReader::new(conn);
     let mut reader = serde_json::Deserializer::from_reader(reader).into_iter::<protocol::RPC>();
-    let reply = send_and_recv(&req, &mut writer, &mut reader)?;
+    let reply = send_and_recv(&req, &mut writer, &mut reader)
+        .with_context(|| format!("failed to send_and_recv"))?;
 
     match &reply {
         RPC::Vote(rpc_reply) => {
@@ -259,7 +339,7 @@ fn test_dialer_denies_votes(_addr: &String, _req: RPC, _sender: Sender<()>) -> R
 }
 
 mod tests {
-    #[allow(unused)]
+    #![allow(unused)]
     use super::*;
     const TIMEOUT_SECS: u64 = 2;
 
@@ -360,8 +440,8 @@ mod tests {
 
         let expected_state = State {
             id: node_id,
-            term: 3,       // expected term
-            vote: node_id, // node should grant vote to itself
+            term: 3,              // expected term
+            vote: node_id as i64, // node should grant vote to itself
             commit_index: 0,
             current_leader: ABSENT_LEADER,
             entries: Vec::new(),

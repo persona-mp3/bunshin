@@ -1,4 +1,4 @@
-#!/usr/bin/env bin
+#!/usr/bin/env bash
 set -e
 
 run_command() {

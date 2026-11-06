@@ -143,7 +143,7 @@ pub fn handle_conn(conn: TcpStream, node: Arc<Mutex<Node>>) -> Result<()> {
         let rpc_msg = match msg {
             Ok(m) => m,
             Err(ref err) => {
-                println!("error parsing message {:?}, {:?}", err, &msg);
+                println!("error parsing message {:?}, {:?}", err, msg);
                 continue;
             }
         };

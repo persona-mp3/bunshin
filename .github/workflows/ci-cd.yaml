@@ -28,6 +28,8 @@ jobs:
 
   e2e-test:
     runs-on: ubuntu-latest
+    env:
+      CI_ENV: "ci_environment"
     steps:
       - name: Checkout code 
         uses: actions/checkout@v3

@@ -11,7 +11,12 @@ run_command() {
 run_e2e_tests() {
 	run_command cargo build
 
-	run_command rm ./infra ./bunshin ./tester || true
+	if ! [[ -v $CI_ENV ]] ;then
+		run_command echo "clearing stale binaries since not on CI"
+		run_command rm ./infra ./bunshin ./tester || true
+	else
+		run_command echo "currently in $CI_ENV"
+	fi
 	run_command echo "copying binaries to current directory $PWD"
 
 	run_command cp ./target/debug/infra .
@@ -21,8 +26,8 @@ run_e2e_tests() {
 	run_command ./infra --nodes 3000
 	run_command ./tester --node-id 1 --port 3000
 
-	printf "\ndone running e2e_tests\n"
 	run_command ./infra stop-all
+	run_command echo "done running e2e_tests"
 
 }
 

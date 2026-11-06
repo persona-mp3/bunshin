@@ -265,13 +265,13 @@ fn connection_dialer(addr: &String, req: RPC, sender: Sender<()>) -> Result<()> 
   let mut writer = BufWriter::new(
     conn
       .try_clone()
-      .with_context(|| format!("faied to clone connections' writer"))?,
+      .with_context(|| "faied to clone connections' writer".to_string())?,
   );
 
   let reader = BufReader::new(conn);
   let mut reader = serde_json::Deserializer::from_reader(reader).into_iter::<protocol::RPC>();
   let reply = send_and_recv(&req, &mut writer, &mut reader)
-    .with_context(|| format!("failed to send_and_recv"))?;
+    .with_context(|| "failed to send_and_recv".to_string())?;
 
   match &reply {
     RPC::Vote(rpc_reply) => {

@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use crossbeam::channel::{self, Sender};
-use serde_json;
 use std::error::Error;
 use std::io::{BufReader, BufWriter, Write};
 use std::net::{TcpListener, TcpStream};
@@ -63,11 +62,10 @@ pub fn start_server(addr: String, sender: Sender<state_machine::Envelope>) {
         conn.set_nonblocking(false).unwrap();
         let (sender, stop_tx) = (sender.clone(), stop_tx.clone());
         thread::spawn(move || {
-          if let Err(e) = handle_conn(conn, sender) {
-            if e.to_string().starts_with("INTERNAL STATE IS DOWN") {
+          if let Err(e) = handle_conn(conn, sender)
+            && e.to_string().starts_with("INTERNAL STATE IS DOWN") {
               let _ = stop_tx.try_send(());
             }
-          }
         });
       }
       Err(_) => thread::sleep(Duration::from_millis(20)),
@@ -87,7 +85,7 @@ fn handle_conn(
     let rpc_msg = match msg {
       Ok(m) => m,
       Err(ref err) => {
-        println!("error parsing message {:?}, {:?}", err, &msg);
+        println!("error parsing message {:?}, {:?}", err, msg);
         continue;
       }
     };
@@ -96,7 +94,7 @@ fn handle_conn(
 
     let envelope = state_machine::Envelope {
       rpc: rpc_msg,
-      sender: sender,
+      sender,
     };
 
     match state_sender.send(envelope) {
@@ -127,7 +125,7 @@ fn parse_peers(
     return Ok(Vec::new());
   };
 
-  if peers.len() == 0 {
+  if peers.is_empty() {
     return Ok(peers);
   }
 
@@ -148,5 +146,5 @@ fn parse_peers(
     parsed_addrs.push(addr)
   }
 
-  return Ok(parsed_addrs);
+  Ok(parsed_addrs)
 }

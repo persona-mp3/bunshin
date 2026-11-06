@@ -1,4 +1,2 @@
-
 #[test]
-fn test_node_behaviour() {
-}
+fn test_node_behaviour() {}

@@ -141,7 +141,7 @@ fn run_network(addrs: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 
         command
             .arg("--node-id")
-            .arg(idx.to_string())
+            .arg((idx + 1).to_string())
             .arg("--port")
             .arg(port)
             .arg("--peers")
@@ -170,10 +170,10 @@ fn run_bunshin(addrs: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 
     for (idx, addr) in addrs.iter().enumerate() {
         match Command::new("./bunshin")
-            .arg("--addr")
+            .arg("--port")
             .arg(addr)
             .arg("--node-id")
-            .arg(idx.to_string())
+            .arg((idx + 1).to_string())
             .stdin(Stdio::null()) // prevents the process from writing to current shell
             .stdout(Stdio::null())
             .stderr(Stdio::null())

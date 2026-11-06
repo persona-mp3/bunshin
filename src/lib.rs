@@ -150,7 +150,7 @@ impl State {
         self.entries.push(entry);
     }
 
-    fn append_new_command(&mut self, cmd: &Command) -> Entry {
+    pub fn append_new_command(&mut self, cmd: &Command) -> Entry {
         self.previous_log_index += 1;
 
         let entry = Entry {

@@ -28,6 +28,9 @@ jobs:
 
   e2e-test:
     runs-on: ubuntu-latest
+    env:
+      CI_ENV: "ci_environment"
+
     steps:
       - name: Checkout code 
         uses: actions/checkout@v3
@@ -39,17 +42,7 @@ jobs:
 
       - name: E2E Tests
         run: |
-            cargo build
-            cp target/debug/bunshin .
-            cp target/debug/tester .
-
-            echo "running bunshin on port 3000"
-            ./bunshin --node-id 1 --port 3000 &
-
-            echo "delay for bunshin to start"
-            sleep 2
-            echo "running tester"
-            ./tester --node-id 1 --port 3000
+          bash tester.sh
 
   security-scan:
     runs-on: ubuntu-latest

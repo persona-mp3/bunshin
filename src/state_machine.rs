@@ -344,6 +344,7 @@ mod tests {
   use super::*;
   const TIMEOUT_SECS: u64 = 2;
   const TEST_NODE_ID: u64 = 1;
+  const EXTERNAL_NODE_ID: u64 = 99_999;
 
   #[test]
   fn test_collect_votes() {
@@ -389,7 +390,7 @@ mod tests {
   }
 
   #[test]
-  fn test_candidate_transitons_to_follower_after_loosing_electoin() {
+  fn test_candidate_transitons_to_follower_after_loosing_election() {
     let node_id: u64 = 1;
     let mut state = State::new(node_id);
     let (_, rx) = channel::unbounded();
@@ -410,11 +411,8 @@ mod tests {
     let mut state = State::new(node_id);
     let (_, rx) = channel::unbounded();
 
-    // needs to be more than 2 peers
-    let peers = vec![
-      String::from("localhost:9000"),
-      String::from("localhost:9001"),
-    ];
+    let peers = vec![String::from("localhost:9001")];
+
     let mut machine = Machine::new(1, String::from(""), rx, peers);
     let rs = machine.run_candidate(
       &mut state,
@@ -460,13 +458,12 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     let mut mu = Arc::new(Mutex::new(State::new(TEST_NODE_ID)));
-    // let mut state = State::new(TEST_NODE_ID);
     let (network_tx, network_rx) = channel::unbounded();
     let mut machine = Machine::new(
       TEST_NODE_ID,
       "".to_string(),
       network_rx,
-      vec!["localhost:9000".to_string(), "localhost:9001".to_string()].into(),
+      vec!["localhost:9001".to_string()].into(),
     );
 
     let initial_state = Arc::new(Mutex::new(RaftState::Candidate));
@@ -485,7 +482,7 @@ mod tests {
     });
 
     let higher_term = 3;
-    let mut req = VoteRPC::default(TEST_NODE_ID);
+    let mut req = VoteRPC::default(EXTERNAL_NODE_ID);
     req.term = higher_term;
 
     let (rpc_reply_tx, rpc_reply_rx) = channel::unbounded();
@@ -519,6 +516,6 @@ mod tests {
       RaftState::Follower,
       "node in candidate should step down to Follower state"
     );
-    assert_eq!(state.current_leader, TEST_NODE_ID as i32);
+    assert_eq!(state.current_leader, EXTERNAL_NODE_ID as i32);
   }
 }

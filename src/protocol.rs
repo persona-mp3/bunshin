@@ -1,5 +1,6 @@
+#![allow(unused)]
 use crate::{Command, Entry, Node, State};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::io::{BufReader, BufWriter, Write};
 use std::net::TcpStream;
@@ -38,7 +39,7 @@ impl AppendEntry {
         }
     }
 
-    pub fn handle(&self, state: &mut State) -> Result<AppendEntry> {
+    pub fn handle(&self, state: &mut State) -> AppendEntry {
         let req_id = self.id as i32;
         let mut default_reply = AppendEntry {
             id: state.id,
@@ -55,7 +56,7 @@ impl AppendEntry {
         // will need to do this check, which avoids duplication
         if state.term > self.term {
             default_reply.info = Some(String::from("you have an outdated term"));
-            return Ok(default_reply);
+            return default_reply;
         } else if self.term > state.term {
             state.term = self.term;
             state.current_leader = req_id;
@@ -70,7 +71,7 @@ impl AppendEntry {
                     "did not recognize {req_id} as leader. Already have leader {}",
                     state.current_leader
                 );
-                return Ok(default_reply);
+                return default_reply;
             }
 
             state.current_leader = req_id;
@@ -81,7 +82,7 @@ impl AppendEntry {
 
         if !logs_match {
             default_reply.info = Some("logs don't match".to_string());
-            return Ok(default_reply);
+            return default_reply;
         };
 
         println!("logs match....");
@@ -94,7 +95,10 @@ impl AppendEntry {
         }
 
         if state.commit_index < self.commit_index {
-            let stop_index = state.persist_till(self.commit_index)?;
+            let stop_index = state
+                .persist_till(self.commit_index)
+                .context("failed to persist logs")
+                .unwrap();
             state.commit_index = stop_index;
         }
 
@@ -103,7 +107,7 @@ impl AppendEntry {
         default_reply.success = true;
         default_reply.commit_index = state.commit_index;
 
-        Ok(default_reply)
+        default_reply
     }
 }
 
@@ -134,114 +138,138 @@ pub enum RPC {
     Vote(VoteRPC),
 }
 
-pub fn handle_conn(conn: TcpStream, node: Arc<Mutex<Node>>) -> Result<()> {
-    let reader = BufReader::new(conn.try_clone()?);
-    let mut writer = BufWriter::new(conn);
-
-    let parser = serde_json::Deserializer::from_reader(reader);
-    for msg in parser.into_iter::<RPC>() {
-        let rpc_msg = match msg {
-            Ok(m) => m,
-            Err(ref err) => {
-                println!("error parsing message {:?}, {:?}", err, msg);
-                continue;
-            }
-        };
-
-        match rpc_msg {
-            RPC::AppendEntry(append_entry) => {
-                let mut current_node = node.lock().unwrap();
-                let reply = match append_entry.handle(&mut current_node.state) {
-                    Ok(rep) => rep,
-                    Err(err) => {
-                        println!("append_entry reply failed: {}", err);
-                        continue;
-                    }
-                };
-
-                if reply.success {
-                    current_node
-                        .reset_timer
-                        .send(())
-                        .expect("could not send to reset timer");
-                }
-
-                let rpc_reply = RPC::AppendEntry(reply);
-                serde_json::to_writer(&mut writer, &rpc_reply)?;
-                writer.write_all(b"\n")?;
-                writer.flush()?;
-            }
-
-            RPC::Command(command) => {
-                let mut current_node = node.lock().unwrap();
-                let reply = handle_command_rpc(&mut current_node.state, &command);
-                let rpc_reply = RPC::CommandReply(reply);
-                serde_json::to_writer(&mut writer, &rpc_reply)?;
-                writer.write_all(b"\n")?;
-                writer.flush()?;
-            }
-
-            _ => {
-                todo!("unexpected rpc recevied: {:?}", rpc_msg);
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn handle_command_rpc(state: &mut State, command: &Command) -> CommandReply {
-    let entry_exists = state.has_key(&command.key);
-
-    match command.operation.as_str() {
-        // we just place it in there regardless
-        "set" => {
-            state.append_new_command(command);
-            println!("recvd set request for {:?}", command);
-            return CommandReply {
-                success: true,
-                value: command.value.to_string(),
-            };
-        }
-
-        "rm" => {
-            // check if we have that value
-            match entry_exists {
-                None => (),
-                Some(entry) => {
-                    state.append_new_command(command);
-                    return CommandReply {
-                        success: true,
-                        value: entry.value,
-                    };
-                }
-            }
-        }
-        "get" => {
-            // check
-            match entry_exists {
-                None => (),
-                Some(entry) => {
-                    return CommandReply {
-                        success: true,
-                        value: entry.value,
-                    };
-                }
-            }
-        }
-        &_ => {
-            panic!("unexpected operation from command: {:?}", command)
-        }
-    }
-    CommandReply {
-        value: "not_found".to_string(),
-        success: false,
-    }
-}
+// pub fn handle_conn(conn: TcpStream, node: Arc<Mutex<Node>>) -> Result<()> {
+//     let reader = BufReader::new(conn.try_clone()?);
+//     let mut writer = BufWriter::new(conn);
+//
+//     let parser = serde_json::Deserializer::from_reader(reader);
+//     for msg in parser.into_iter::<RPC>() {
+//         let rpc_msg = match msg {
+//             Ok(m) => m,
+//             Err(ref err) => {
+//                 println!("error parsing message {:?}, {:?}", err, msg);
+//                 continue;
+//             }
+//         };
+//
+//         match rpc_msg {
+//             RPC::AppendEntry(append_entry) => {
+//                 let mut current_node = node.lock().unwrap();
+//                 let reply = match append_entry.handle(&mut current_node.state) {
+//                     Ok(rep) => rep,
+//                     Err(err) => {
+//                         println!("append_entry reply failed: {}", err);
+//                         continue;
+//                     }
+//                 };
+//
+//                 if reply.success {
+//                     current_node
+//                         .reset_timer
+//                         .send(())
+//                         .expect("could not send to reset timer");
+//                 }
+//
+//                 let rpc_reply = RPC::AppendEntry(reply);
+//                 serde_json::to_writer(&mut writer, &rpc_reply)?;
+//                 writer.write_all(b"\n")?;
+//                 writer.flush()?;
+//             }
+//
+//             RPC::Command(command) => {
+//                 let mut current_node = node.lock().unwrap();
+//                 let reply = handle_command_rpc(&mut current_node.state, &command);
+//                 let rpc_reply = RPC::CommandReply(reply);
+//                 serde_json::to_writer(&mut writer, &rpc_reply)?;
+//                 writer.write_all(b"\n")?;
+//                 writer.flush()?;
+//             }
+//
+//             _ => {
+//                 todo!("unexpected rpc recevied: {:?}", rpc_msg);
+//             }
+//         }
+//     }
+//
+//     Ok(())
+// }
+//
+// fn handle_command_rpc(state: &mut State, command: &Command) -> CommandReply {
+//     let entry_exists = state.has_key(&command.key);
+//
+//     match command.operation.as_str() {
+//         // we just place it in there regardless
+//         "set" => {
+//             state.append_new_command(command);
+//             println!("recvd set request for {:?}", command);
+//             return CommandReply {
+//                 success: true,
+//                 value: command.value.to_string(),
+//             };
+//         }
+//
+//         "rm" => {
+//             // check if we have that value
+//             match entry_exists {
+//                 None => (),
+//                 Some(entry) => {
+//                     state.append_new_command(command);
+//                     return CommandReply {
+//                         success: true,
+//                         value: entry.value,
+//                     };
+//                 }
+//             }
+//         }
+//         "get" => {
+//             // check
+//             match entry_exists {
+//                 None => (),
+//                 Some(entry) => {
+//                     return CommandReply {
+//                         success: true,
+//                         value: entry.value,
+//                     };
+//                 }
+//             }
+//         }
+//         &_ => {
+//             panic!("unexpected operation from command: {:?}", command)
+//         }
+//     }
+//     CommandReply {
+//         value: "not_found".to_string(),
+//         success: false,
+//     }
+// }
 
 fn default_commit_index() -> u64 {
     0
 }
+
+pub fn is_candidate_log_up_to_date(
+    state: &mut State,
+    candidate_last_log_index: u64,
+    candidate_last_log_term: u64,
+) -> bool {
+    let last_log = state.entries.pop().unwrap_or_default();
+    if candidate_last_log_index != last_log.index {
+        candidate_last_log_term > last_log.term
+    } else {
+        candidate_last_log_index >= last_log.index
+    }
+}
+
+// pub fn log_matches(state: &State, prev_log_index: u64, prev_log_term: u64) -> bool {
+//     if prev_log_index == 0 {
+//         return true;
+//     }
+//
+//     let pos = (prev_log_index - 1) as usize;
+//     match state.entries.get(pos)k
+//
+//     // check if we have a term at such index
+// }
 
 pub fn check_log_consistency(state: &State, prev_log_index: u64, prev_log_term: u64) -> bool {
     if state.previous_log_index == prev_log_index && state.previous_log_term == prev_log_term {
@@ -285,7 +313,7 @@ mod tests {
         let mut append_entry = AppendEntry::new(req_id);
         append_entry.term = higher_term;
 
-        let node_response = append_entry.handle(&mut node_state)?;
+        let node_response = append_entry.handle(&mut node_state);
 
         let expected_response = AppendEntry {
             id: node_id,
@@ -338,7 +366,7 @@ mod tests {
         let mut append_entry = AppendEntry::new(req_id);
         append_entry.term = lower_term;
 
-        let node_response = append_entry.handle(&mut node_state)?;
+        let node_response = append_entry.handle(&mut node_state);
 
         let expected_response = AppendEntry {
             id: node_id,

@@ -44,7 +44,7 @@ use std::{
 /// is to accomade e2e tests and external test scripts that rely on it
 pub fn random_timeout() -> time::Duration {
     let mut rng = rand::rng();
-    let timeout = rng.random_range(1..5);
+    let timeout = rng.random_range(2..5);
     Duration::from_secs(timeout)
 }
 

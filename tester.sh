@@ -11,11 +11,11 @@ run_command() {
 run_e2e_tests() {
 	run_command cargo build
 
-	if ! [[ -v $CI_ENV ]] ;then
+	if  [[ -v CI_ENV ]] ;then
+		run_command echo "currently in CI_ENV:$CI_ENV environment"
+	else
 		run_command echo "clearing stale binaries since not on CI"
 		run_command rm ./infra ./bunshin ./tester || true
-	else
-		run_command echo "currently in $CI_ENV"
 	fi
 	run_command echo "copying binaries to current directory $PWD"
 

@@ -23,7 +23,19 @@ pub struct AppendEntry {
 }
 
 impl AppendEntry {
-  pub fn new(id: u64) -> AppendEntry {
+  pub fn default(id: u64) -> Self {
+    AppendEntry {
+      id,
+      previous_log_index: 0,
+      previous_log_term: 0,
+      commit_index: 0,
+      entry: Some(Entry::default()),
+      success: false,
+      term: 0,
+      info: None,
+    }
+  }
+  pub fn new(id: u64) -> Self {
     AppendEntry {
       id,
       previous_log_index: 0,

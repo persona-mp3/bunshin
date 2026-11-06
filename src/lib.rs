@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -27,6 +27,9 @@ pub struct Entry {
   pub command: Command,
 }
 
+// impl Entry {
+// }
+
 impl Default for Entry {
   /// Returns an entry with index and term initialised as 0
   /// operation as "set", key as "init" and value as "init_value"
@@ -51,6 +54,16 @@ pub struct Command {
   pub operation: String,
 }
 
+impl Command {
+  pub fn default() -> Self {
+    Command {
+      key: "init".to_string(),
+      value: "init_value".to_string(),
+      operation: "set".to_string(),
+    }
+  }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct State {
   pub id: u64,
@@ -59,7 +72,7 @@ pub struct State {
   pub entries: Vec<Entry>,
   pub commit_index: u64,
   /// log entries and state of the node is stored
-  file_name: String,
+  pub file_name: String,
   /// when current-leader is -1, no leader has being selected
   pub current_leader: i32,
   pub term: u64,
@@ -91,7 +104,7 @@ impl State {
   /// to `self.stop`. If no logs exists within such range, it returns the current
   /// value of `self.commit`. Otherwise it returns the index of the latest log
   /// that has been persisted
-  fn persist_till(&self, stop: u64) -> Result<u64> {
+  pub fn persist_till(&self, stop: u64) -> Result<u64> {
     let mut actual_stop_index = 0;
     let file = File::options()
       .create(true)
@@ -103,22 +116,12 @@ impl State {
     if let Some(volatile_logs) = self
       .entries
       .get(self.commit_index as usize..stop as usize + 1)
-    // to make it inclusive we add 1
     {
       for log in volatile_logs.iter() {
-        let json = serde_json::to_string(log);
-        if let Ok(value) = json {
-          if let Err(err) = serde_json::to_writer_pretty(&mut writer, &value) {
-            eprintln!("failed to persist: {:?}, {:?}, json: {:?}", err, log, value);
-            continue;
-          }
-
-          writer.write_all(b"\n")?;
-        } else {
-          eprintln!("could not marshall: {:?}, {:?}", json.unwrap(), log);
-          continue;
-        }
-
+        serde_json::to_writer(&mut writer, &log)
+          .with_context(|| format!("could not persist entry with serde"))?;
+        writer.write_all(b"\n")?;
+        writer.flush()?;
         actual_stop_index = log.index;
       }
     } else {
@@ -129,7 +132,7 @@ impl State {
     Ok(actual_stop_index)
   }
 
-  fn has_key(&self, key: &String) -> Option<Command> {
+  pub fn has_key(&self, key: &String) -> Option<Command> {
     for entry in self.entries.iter().rev() {
       if entry.command.key == *key {
         if entry.command.operation == "rm" {
@@ -141,7 +144,7 @@ impl State {
     None
   }
 
-  fn append_entry(&mut self, entry: Entry) {
+  pub fn append_entry(&mut self, entry: Entry) {
     self.previous_log_index = entry.index;
     self.previous_log_term = entry.term;
     self.entries.push(entry);

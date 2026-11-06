@@ -2,7 +2,7 @@ use crate::{Command, Entry, State};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 /// CommandReply is sent to external clients
 pub struct CommandReply {
     pub value: String,
@@ -108,7 +108,7 @@ impl AppendEntry {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct VoteRPC {
     pub id: u64,
     pub previous_log_index: u64,
@@ -118,12 +118,21 @@ pub struct VoteRPC {
 }
 
 impl VoteRPC {
+    pub fn default(id: u64) -> Self {
+        VoteRPC {
+            id,
+            previous_log_index: 0,
+            previous_log_term: 0,
+            term: 0,
+            granted: false,
+        }
+    }
     pub fn handle(&self, _state: &mut State) {
         unimplemented!()
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RPC {
     AppendEntry(AppendEntry),

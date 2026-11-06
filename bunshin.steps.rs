@@ -1,3 +1,6 @@
+// This file is an aim to see how I can teach others how they might want to implement
+// the raft algorithm. So I'm creating this based off past experience and how it helps
+// now, rebuilding in Rust
 // ------------------------------------------- Task 1 -------------------------------------------
 // 1. The program should accept AppendEntry requests. The requests contain the following fields: -
 //    id: u32 who sent the  request - type: append_entry - previous_log_term: u64 -

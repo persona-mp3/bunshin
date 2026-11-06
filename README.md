@@ -1,5 +1,5 @@
-## bushin
-bushin is a raft implementation to make a storage engine, jkvs distributed.
+## bunshin
+bunshin is a raft implementation to make a storage engine, jkvs distributed.
 
 ## Prerequsites
 Rust toolchain installed

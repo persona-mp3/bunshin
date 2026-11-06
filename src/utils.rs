@@ -10,36 +10,6 @@ use std::{
   time::{self, Duration},
 };
 
-// pub fn start_timer(
-//     timeout: time::Duration,
-//     reset_timer_recv: Receiver<()>,
-//     timeout_elapsed_signal: Sender<()>,
-// ) {
-//     let mut deadline = Instant::now() + timeout;
-//     loop {
-//         let remain = deadline.saturating_duration_since(time::Instant::now());
-//         select! {
-//             recv(reset_timer_recv) -> sig => {
-//                 match sig {
-//                     Ok(_) => { deadline = Instant::now() + timeout },
-//                     Err(_) => { println!("reset_timer_channel disconnected"); return; },
-//                 }
-//             },
-//
-//             default(remain) => {
-//                 match timeout_elapsed_signal.send_timeout((), time::Duration::from_secs(3)) {
-//                     Ok(_) => {},
-//                     Err(err) => {
-//                         println!("error occured: {}", err);
-//                     }
-//                 };
-//                 println!("    timer elapsed");
-//                 return;
-//             }
-//         }
-//     }
-// }
-
 /// random_timeout returns a timeout range of 1-5 in secs. The long range
 /// is to accomade e2e tests and external test scripts that rely on it
 pub fn random_timeout() -> time::Duration {

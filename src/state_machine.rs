@@ -328,7 +328,7 @@ fn collect_votes(
 }
 
 #[cfg(test)]
-fn test_dialer_granted_votes(_addr: &String, _req: RPC, sender: Sender<()>) -> Result<()> {
+fn test_dialer_grants_votes(_addr: &String, _req: RPC, sender: Sender<()>) -> Result<()> {
     sender.send(())?;
     Ok(())
 }
@@ -342,6 +342,7 @@ mod tests {
     #![allow(unused)]
     use super::*;
     const TIMEOUT_SECS: u64 = 2;
+    const TEST_NODE_ID: u64 = 1;
 
     #[test]
     fn test_collect_votes() {
@@ -368,7 +369,7 @@ mod tests {
                 &peers,
                 req,
                 send_votes,
-                test_dialer_granted_votes,
+                test_dialer_grants_votes,
                 Duration::from_secs(TIMEOUT_SECS),
             );
         });
@@ -416,7 +417,7 @@ mod tests {
         let mut machine = Machine::new(1, String::from(""), rx, peers);
         let rs = machine.run_candidate(
             &mut state,
-            test_dialer_granted_votes,
+            test_dialer_grants_votes,
             Duration::from_secs(TIMEOUT_SECS),
         );
 
@@ -433,7 +434,7 @@ mod tests {
         for _ in 0..3 {
             machine.run_candidate(
                 &mut state,
-                test_dialer_granted_votes,
+                test_dialer_grants_votes,
                 Duration::from_secs(TIMEOUT_SECS),
             );
         }
@@ -451,5 +452,72 @@ mod tests {
         };
 
         assert_eq!(state, expected_state);
+    }
+
+    #[test]
+    fn test_candidate_accepts_vote_from_higher_term() {
+        use std::sync::{Arc, Mutex};
+
+        let mut mu = Arc::new(Mutex::new(State::new(TEST_NODE_ID)));
+        // let mut state = State::new(TEST_NODE_ID);
+        let (network_tx, network_rx) = channel::unbounded();
+        let mut machine = Machine::new(
+            TEST_NODE_ID,
+            "".to_string(),
+            network_rx,
+            vec!["localhost:9000".to_string(), "localhost:9001".to_string()].into(),
+        );
+
+        let initial_state = Arc::new(Mutex::new(RaftState::Candidate));
+        let c = Arc::clone(&mu);
+        let rs = Arc::clone(&initial_state);
+
+        thread::spawn(move || {
+            let mut state = c.lock().unwrap();
+            let mut transition_state = rs.lock().unwrap();
+
+            *transition_state = machine.run_candidate(
+                &mut state,
+                test_dialer_grants_votes,
+                Duration::from_secs(TIMEOUT_SECS),
+            );
+        });
+
+        let higher_term = 3;
+        let mut req = VoteRPC::default(TEST_NODE_ID);
+        req.term = higher_term;
+
+        let (rpc_reply_tx, rpc_reply_rx) = channel::unbounded();
+        let mut envelope = Envelope {
+            rpc: RPC::Vote(req),
+            sender: rpc_reply_tx,
+        };
+
+        network_tx
+            .send_timeout(envelope, Duration::from_secs(TIMEOUT_SECS))
+            .context("could not send through network channel")
+            .unwrap();
+
+        let rpc_reply = rpc_reply_rx
+            .recv_timeout(Duration::from_secs(TIMEOUT_SECS))
+            .context("could not recv on rpc_reply channel")
+            .unwrap();
+
+        let mut expected_reply = VoteRPC::default(TEST_NODE_ID);
+        expected_reply.granted = true;
+        expected_reply.term = higher_term;
+
+        assert_eq!(rpc_reply, RPC::Vote(expected_reply));
+
+        let mut state = mu.lock().unwrap();
+        let new_state = initial_state.lock().unwrap();
+
+        assert_eq!(state.term, higher_term);
+        assert_eq!(
+            *new_state,
+            RaftState::Follower,
+            "node in candidate should step down to Follower state"
+        );
+        assert_eq!(state.current_leader, TEST_NODE_ID as i32);
     }
 }

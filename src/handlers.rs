@@ -167,7 +167,7 @@ pub fn check_log_consistency(req: AppendEntryReq, state: &mut State) -> AppendEn
         Some(log_entry) => log_entry,
     };
 
-    // we have a conflict at this log positoin, so we need to reject it and hint to the
+    // we have a conflict at this log position, so we need to reject it and hint to the
     // leader/sender that we have an index at the position, but the terms don't match
     // so we send it again. This time the leader could decide to skip that particular
     // term as whole

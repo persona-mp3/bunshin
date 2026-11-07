@@ -85,6 +85,7 @@ fn test_correct_hints_are_sent_with_updated_logs() {
             break;
         }
         let prev_log: LogEntry;
+        // get the hint index as the next log to send
         let next_log = updated_logs[hint_index].clone();
         if hint_index <= 0 {
             prev_log = LogEntry::default();
@@ -99,7 +100,6 @@ fn test_correct_hints_are_sent_with_updated_logs() {
         let reply = check_log_consistency(req, &mut state);
         if !reply.success {
             hint_index = hint_index - 1;
-            assert_eq!(reply.success, true, "haha");
             continue;
         }
 

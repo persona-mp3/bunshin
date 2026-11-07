@@ -8,7 +8,14 @@ run_command() {
 	"$@"
 }
 
+run_unit_tests() {
+	run_command echo "running unit tests with cargo"
+	run_command cargo test
+	printf "\n\n"
+}
+
 run_e2e_tests() {
+	run_command echo "running e2e tests with tester crate and infra crates"
 	run_command cargo build
 
 	if  [[ -v CI_ENV ]] ;then

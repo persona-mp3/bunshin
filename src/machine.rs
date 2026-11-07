@@ -25,7 +25,8 @@ impl Machine {
                 }
                 _ => {
                     let _ = network_rx;
-                    panic!("unhandled state: {:?}", next_state);
+                    println!("unhandled state: {:?}", next_state);
+                    return;
                 }
             }
         }

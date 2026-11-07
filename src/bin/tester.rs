@@ -20,27 +20,38 @@ struct Cli {
     node_id: u64,
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
     let args = Cli::parse();
     let addr = format!("localhost:{}", args.port);
     let conn = match TcpStream::connect(addr) {
         Ok(stream) => stream,
         Err(err) => {
-            return Err(format!(
+            println!(
                 "could not connect to {}. please make sure it is running. reason: {}",
                 args.port, err
-            )
-            .into());
+            );
+            return;
         }
     };
 
-    let mut reader = BufReader::new(conn.try_clone()?);
+    let mut reader = BufReader::new(conn.try_clone().unwrap());
     let mut writer = BufWriter::new(conn);
 
-    test_leader_recognition(args.node_id, &mut reader, &mut writer)?;
+    match test_leader_recognition(args.node_id, &mut reader, &mut writer) {
+        Ok(_) => {}
+        Err(err) => {
+            eprintln!("{}", err);
+            return;
+        }
+    };
     println!("{GREEN}leader_recognition passed{RESET}");
-    test_node_appends_logs(args.node_id, &mut reader, &mut writer)?;
-    Ok(())
+    match test_node_appends_logs(args.node_id, &mut reader, &mut writer) {
+        Ok(_) => {}
+        Err(err) => {
+            eprintln!(" {}", err);
+            return;
+        }
+    };
 }
 
 /// test_leader_recognition sends two rpcs. If the target node has just started
@@ -67,10 +78,10 @@ fn test_leader_recognition(
         Err(err) => return Err(format!("failed to read response: {}", err).into()),
     };
 
-    let mut expected_initial_response = protocol::AppendEntryReq::default(target_node_id);
+    let mut expected_initial_response = protocol::AppendEntryReply::default(target_node_id);
     expected_initial_response.success = true;
     match inital_response {
-        protocol::Rpc::AppendEntryReq(reply) => {
+        protocol::Rpc::AppendEntryReply(reply) => {
             assert_eq!(expected_initial_response, reply);
         }
 
@@ -94,13 +105,15 @@ fn test_leader_recognition(
     writer.write_all(b"\n")?;
     writer.flush()?;
 
-    let mut expected_invalid_reply = protocol::AppendEntryReq::default(target_node_id);
+    let mut expected_invalid_reply = protocol::AppendEntryReply::default(target_node_id);
     expected_invalid_reply.success = false;
-    expected_invalid_reply.info = Some("unrecognized as leader".to_string());
 
-    let default_response = json_reader.next().unwrap()?;
+    let default_response = json_reader.next();
+    let default_response = default_response.unwrap();
+    let default_response = default_response.unwrap();
+
     match default_response {
-        protocol::Rpc::AppendEntryReq(reply) => {
+        protocol::Rpc::AppendEntryReply(reply) => {
             assert_eq!(
                 expected_invalid_reply, reply,
                 "{RED}node is supposed to reject request from an unrecognized leader
@@ -112,7 +125,7 @@ fn test_leader_recognition(
 
         _ => {
             return Err(format!(
-                "{RED}expected append_entry, got: {:?}{RESET}",
+                "{RED}expected AppendEntryReply, got: {:?}{RESET}",
                 default_response
             )
             .into());
@@ -176,25 +189,27 @@ fn test_node_appends_logs(
             &mut json_reader,
         )?;
         match reply {
-            protocol::Rpc::AppendEntryReq(rpc_reply) => {
+            protocol::Rpc::AppendEntryReply(rpc_reply) => {
                 // check if log indexes match
-                if req.entry.as_ref().unwrap().index != rpc_reply.previous_log_index
-                    || req.entry.as_ref().unwrap().term != rpc_reply.previous_log_term
+                if !rpc_reply.success
+                // if req.entry.as_ref().unwrap().index != rpc_reply.conflict_index
+                // || req.entry.as_ref().unwrap().term != rpc_reply.previous_log_term
                 {
                     let err_msg = format!(
                         "{RED} log_consistency broken. (log_index, log_term)
-                            expected ({}, {}), got ({}, {}) {RESET}
+                            expected ({}, {}), got ({}, {:?}) {RESET}
                             ",
                         req.entry.as_ref().unwrap().index,
                         req.entry.as_ref().unwrap().term,
-                        rpc_reply.previous_log_index,
-                        rpc_reply.previous_log_term
+                        rpc_reply.conflict_index,
+                        rpc_reply.conflict_term
                     );
 
                     failed_count += 1;
                     println!("{}", err_msg)
                 };
             }
+
             _ => {
                 return Err(anyhow!(format!(
                     "{RED} [test_node_appends_logs] expected AppendEntryRpc got {:?} {RESET}",

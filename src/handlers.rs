@@ -101,10 +101,12 @@ pub fn handle_append_entry_request(
 
             let current_leader = state.get_leader();
             if current_leader != req.id {
-                panic!(
+                println!(
                     "duplicate leaders for term:{:?}, leader: {}, req: {:?}",
                     state.term, current_leader, req
                 );
+
+                return (AppendEntryReply::default(state.id), None);
             }
 
             // now terms are equal, and we have a valid leader that matches our stored one

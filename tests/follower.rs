@@ -11,8 +11,8 @@ mod test_utils;
 /// the term sent is from a higher term, the follower should also acknowledge the
 /// sender as a valid leader for current term
 #[test]
-fn test_follower_behaviour() {
-    let (network_tx, network_rx) = channel::unbounded::<Envelope>();
+fn test_follower_accepts_higher_term_append_entry() {
+    let (network_tx, mut network_rx) = channel::unbounded::<Packet>();
     let state = State::new(test_utils::TEST_NODE_ID);
 
     let locked = Arc::new(Mutex::new(state));
@@ -21,7 +21,7 @@ fn test_follower_behaviour() {
         let mut s = clone.lock().expect("failed to acquire lock for state");
         let timeout = Duration::from_secs(test_utils::TIMEOUT_DURATION_SECS);
 
-        run_follower(network_rx, &mut *s, timeout);
+        run_follower(&mut network_rx, &mut *s, timeout);
     });
 
     // acks higher term
@@ -31,7 +31,7 @@ fn test_follower_behaviour() {
 
     let (packet_tx, packet_rx) = channel::unbounded();
 
-    let packet = Envelope {
+    let packet = Packet {
         rpc: Rpc::AppendEntryReq(req),
         sender: packet_tx.clone(),
     };
@@ -73,8 +73,8 @@ fn test_follower_behaviour() {
 }
 
 #[test]
-fn ff() {
-    let (network_tx, network_rx) = channel::unbounded::<Envelope>();
+fn test_follower_rejects_outdated_append_entry() {
+    let (network_tx, mut network_rx) = channel::unbounded::<Packet>();
     let mut state = State::new(test_utils::TEST_NODE_ID);
     // assign state with higher term
     let higher_term = 3;
@@ -86,14 +86,14 @@ fn ff() {
         let mut s = clone.lock().expect("failed to acquire lock for state");
         let timeout = Duration::from_secs(test_utils::TIMEOUT_DURATION_SECS);
 
-        run_follower(network_rx, &mut *s, timeout);
+        run_follower(&mut network_rx, &mut *s, timeout);
     });
 
     let outdated_req = AppendEntryReq::default(test_utils::TEST_NODE_ID); // starts at 0
 
     let (packet_tx, packet_rx) = channel::unbounded();
 
-    let packet = Envelope {
+    let packet = Packet {
         rpc: Rpc::AppendEntryReq(outdated_req),
         sender: packet_tx.clone(),
     };

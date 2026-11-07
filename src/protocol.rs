@@ -2,12 +2,12 @@ use crate::LogEntry;
 use crossbeam::channel::Sender;
 use serde::{Deserialize, Serialize};
 
-/// Envelope is used to communicate between the Network and Machine layer.
-/// The network layer sends incoming rpc requests through a [`Sender<Envelope>`]
+/// Packet is used to communicate between the Network and Machine layer.
+/// The network layer sends incoming rpc requests through a [`Sender<Packet>`]
 /// which contains the rpc payload and a channel that the Machine layer should
 /// give the reply through
 #[derive(Debug, Clone)]
-pub struct Envelope {
+pub struct Packet {
     pub rpc: Rpc,
     pub sender: Sender<Rpc>,
 }
@@ -73,7 +73,7 @@ pub struct AppendEntryReply {
 
     /// reset_timer is not part of the protocol but is used within the state machine. It
     /// signifies that the node can reset it's timer
-    #[serde(skip_serializing)]
+    #[serde(skip)]
     pub reset_timer: bool,
 }
 

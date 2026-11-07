@@ -1,4 +1,4 @@
-use crate::protocol::{AppendEntryReply, AppendEntryReq, Envelope, Rpc};
+use crate::protocol::{AppendEntryReply, AppendEntryReq, Packet, Rpc};
 use crate::{RaftState, State};
 use crossbeam::channel::{self, Receiver, select};
 use std::time::Duration;
@@ -10,7 +10,7 @@ use std::time::Duration;
 ///
 /// It panics when it receives a state to transition to from child functions
 pub fn run_follower(
-    network_rx: Receiver<Envelope>,
+    network_rx: &mut Receiver<Packet>,
     state: &mut State,
     timeout: Duration,
 ) -> RaftState {

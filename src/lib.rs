@@ -5,6 +5,7 @@ use std::io::{BufWriter, Write};
 
 pub mod protocol;
 pub mod handlers;
+pub mod machine;
 pub mod utils;
 pub const TIMEOUT: u64 = 10;
 

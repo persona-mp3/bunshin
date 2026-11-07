@@ -4,9 +4,9 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 
 pub mod protocol;
-pub const TIMEOUT: u64 = 10;
-mod handlers;
+pub mod handlers;
 pub mod utils;
+pub const TIMEOUT: u64 = 10;
 
 /// Sentinel value to represent that the node has just being initialised and
 /// has no leader, or is in Candidate state

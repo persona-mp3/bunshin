@@ -5,6 +5,7 @@ use std::fs;
 
 pub const TEST_NODE_ID: u64 = 1;
 pub const EXTERNAL_NODE_ID: u64 = 2;
+pub const TIMEOUT_DURATION_SECS: u64 = 2;
 
 pub fn remove_file(path: &str) -> Result<()> {
     if fs::exists(path)? {

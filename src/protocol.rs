@@ -78,9 +78,9 @@ pub struct AppendEntryReply {
 }
 
 impl AppendEntryReply {
-    pub fn default() -> Self {
+    pub fn default(id: u64) -> Self {
         Self {
-            id: 0,
+            id,
             term: 0,
             conflict_index: 0,
             conflict_term: None,

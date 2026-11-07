@@ -71,17 +71,19 @@ pub fn handle_append_entry_request(
     req: AppendEntryReq,
     state: &mut State,
 ) -> (AppendEntryReply, Option<RaftState>) {
-    let mut reply = AppendEntryReply::default();
     if req.term < state.term {
+        let mut reply = AppendEntryReply::default(state.id);
+        reply.term = state.term;
         return (reply, None);
     }
 
     match state.rs {
         RaftState::Follower => {
             if req.term > state.term {
-                state.term = req.term;
                 state.assign_leader(req.id);
-                reply = check_log_consistency(req, state);
+                state.term = req.term;
+
+                let reply = check_log_consistency(req, state);
                 return (reply, None);
             };
 
@@ -93,7 +95,7 @@ pub fn handle_append_entry_request(
             if !state.has_leader() {
                 println!("no leader for current term, accepting {:?}", req);
                 state.assign_leader(req.id);
-                reply = check_log_consistency(req, state);
+                let reply = check_log_consistency(req, state);
                 return (reply, None);
             }
 
@@ -106,7 +108,7 @@ pub fn handle_append_entry_request(
             }
 
             // now terms are equal, and we have a valid leader that matches our stored one
-            reply = check_log_consistency(req, state);
+            let reply = check_log_consistency(req, state);
             return (reply, None);
         }
 
@@ -134,12 +136,13 @@ pub fn handle_append_entry_request(
         _ => {}
     }
 
-    (reply, Some(RaftState::Shutdown))
+    panic!("unhandled case")
 }
 
-fn check_log_consistency(req: AppendEntryReq, state: &mut State) -> AppendEntryReply {
-    let mut reply = AppendEntryReply::default();
+pub fn check_log_consistency(req: AppendEntryReq, state: &mut State) -> AppendEntryReply {
+    let mut reply = AppendEntryReply::default(state.id);
     reply.reset_timer = true;
+    reply.term = state.term;
 
     let target_log = state.get_log_at_index(req.previous_log_index as usize);
     let last_log = state.get_last_log();
@@ -155,6 +158,7 @@ fn check_log_consistency(req: AppendEntryReq, state: &mut State) -> AppendEntryR
             println!("no previous_log at {} from leader", req.previous_log_index);
             reply.conflict_index = last_log.index;
             reply.conflict_term = None;
+            reply.success = false;
             return reply;
         }
 
@@ -183,7 +187,10 @@ fn check_log_consistency(req: AppendEntryReq, state: &mut State) -> AppendEntryR
         Some(entry) => {
             let log_exists = state.get_log_at_index(entry.index);
             match log_exists {
-                None => state.append_log(entry),
+                None => {
+                    println!("no log exists at {} in mine", entry.index);
+                    state.append_log(entry);
+                }
                 Some(conflict) => {
                     if conflict.term != entry.term {
                         state.truncate_from(entry.index);

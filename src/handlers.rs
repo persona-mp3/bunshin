@@ -26,28 +26,23 @@ pub fn run_follower(
                     }
 
                 };
-               match envelope.rpc {
-                   Rpc::AppendEntryReq(req) => {
-                       let (reply, transition) = handle_append_entry_request(req, state);
-                       if reply.reset_timer {
-                           println!("resetting timer");
-                           timeout_ch = channel::after(timeout)
-                       }
+               if let Rpc::AppendEntryReq(req) = envelope.rpc {
+                   let (reply, transition) = handle_append_entry_request(req, state);
+                   if reply.reset_timer {
+                       println!("resetting timer");
+                       timeout_ch = channel::after(timeout)
+                   }
 
-                       // ignore send fialures
-                       let _ = envelope.sender.try_send(Rpc::AppendEntryReply(reply));
+                   // ignore send fialures
+                   let _ = envelope.sender.try_send(Rpc::AppendEntryReply(reply));
 
-                       debug_assert!(
-                           transition.is_none(),
-                           // A follower can only move to a Candidate and that is handled within this
-                           // loop
-                           "follower should never recv a transition state except Shutdown, got: {:?}",
-                           transition
-                           );
-
-                   },
-
-                   _ => {}
+                   debug_assert!(
+                       transition.is_none(),
+                       // A follower can only move to a Candidate and that is handled within this
+                       // loop
+                       "follower should never recv a transition state except Shutdown, got: {:?}",
+                       transition
+                       );
 
                }
             }
@@ -146,7 +141,7 @@ pub fn check_log_consistency(req: AppendEntryReq, state: &mut State) -> AppendEn
     reply.reset_timer = true;
     reply.term = state.term;
 
-    let target_log = state.get_log_at_index(req.previous_log_index as usize);
+    let target_log = state.get_log_at_index(req.previous_log_index);
     let last_log = state.get_last_log();
 
     // we first check if we have any log at the previous_log_index

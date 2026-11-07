@@ -49,9 +49,8 @@ fn main() {
         Ok(_) => {}
         Err(err) => {
             eprintln!(" {}", err);
-            return;
         }
-    };
+    }
 }
 
 /// test_leader_recognition sends two rpcs. If the target node has just started

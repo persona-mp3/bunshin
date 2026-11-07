@@ -108,7 +108,7 @@ impl State {
 
         let mut writer = BufWriter::new(file);
 
-        if let Some(volatile_logs) = self.logs.get(self.commit_index as usize..stop as usize + 1) {
+        if let Some(volatile_logs) = self.logs.get(self.commit_index..stop as usize + 1) {
             for log in volatile_logs.iter() {
                 serde_json::to_writer(&mut writer, &log)
                     .with_context(|| "could not persist entry with serde".to_string())?;
@@ -154,15 +154,15 @@ impl State {
     }
 
     pub fn get_log_at_index(&self, idx: usize) -> Option<LogEntry> {
-        self.logs.get(idx).map(|entry| entry.clone())
+        self.logs.get(idx).cloned()
     }
 
     pub fn get_last_log(&self) -> LogEntry {
-        if self.logs.len() == 0 {
+        if self.logs.is_empty() {
             // this node's logs is completely empty
             LogEntry::default()
         } else {
-            self.logs.get(self.logs.len() - 1).unwrap().clone()
+            self.logs.last().unwrap().clone()
         }
     }
 

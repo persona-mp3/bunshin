@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -e
+# TODO: need to still stop bunshin instance manually incase script fails
 
 run_command() {
 	# cyan color

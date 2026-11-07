@@ -24,7 +24,7 @@ pub struct AppendEntryReq {
     /// the id of the node sending the request
     pub id: u64,
 
-    /// current term of the node sending or receiving
+    /// current term of the node sending
     pub term: u64,
 
     /// the previous_log_index of the node
@@ -65,7 +65,9 @@ impl AppendEntryReq {
 
 #[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Clone)]
 pub struct AppendEntryReply {
+    /// id of the node sending the reply
     pub id: u64,
+
     pub term: u64,
     /// conflict_index is not directly referenced in the protocol. The follower
     /// uses it to hint to the leader on what next log index it might need to take
@@ -73,7 +75,7 @@ pub struct AppendEntryReply {
     ///
     /// Example:
     ///
-    /// inedex:   [1, 2, 3, 4, 5]
+    /// index:    [1, 2, 3, 4, 5]
     /// Leader:   [1, 2, 3, 4, 5]
     /// Follower: [1, 2]
     ///
@@ -98,7 +100,7 @@ pub struct AppendEntryReply {
     /// term
     /// Example:
     ///
-    /// inedex:   [1, 2, 3, 4, 5]
+    /// index:   [1, 2, 3, 4, 5]
     /// Leader:   [1, 1, 4, 4, 3]
     /// Follower: [1, 2, 7]
     ///
@@ -112,12 +114,15 @@ pub struct AppendEntryReply {
     ///
     /// Follower checks i3 but has t7 then sends it in `conflict_term`
     ///
-    /// Leader sees follower has a conflict at i3 with the term t7, so it skips to the 
+    /// Leader sees follower has a conflict at i3 with the term t7, so it skips to the
     /// next previous term it has and starts the index from there, which i2:t1
     ///
     ///
     /// Same thing till they meet at t1 and they can begin to sync
     pub conflict_term: Option<u64>,
+
+    /// true if the previous log indexes match, recognized as leader and the log
+    /// entry, if any was appended successfully
     pub success: bool,
 
     /// reset_timer is not part of the protocol but is used within the state machine. It

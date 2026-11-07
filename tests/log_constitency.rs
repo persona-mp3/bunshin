@@ -46,13 +46,14 @@ fn test_appends_new_logs_when_previous_logs_match() {
 fn test_correct_hints_are_sent_with_updated_logs() {
     let mut state = State::new(TEST_NODE_ID);
     state.term = 1;
-    // TODO: if the index is larger than ours, we basically need to truncate the 
-    // log of the follower
-    // state.append_log(LogEntry {
-    //     index: 2,
-    //     term: 1,
-    //     command: Command::default(),
-    // });
+    // TODO: if the index is larger than ours, we basically need to truncate the
+    // log of the follower and detecting corrupted logs ie chnage the below index
+    // to 3
+    state.append_log(LogEntry {
+        index: 1,
+        term: 1,
+        command: Command::default(),
+    });
 
     let mut updated_logs = vec![];
     for i in 1..4 {
@@ -73,9 +74,7 @@ fn test_correct_hints_are_sent_with_updated_logs() {
     let mut hint_index = reply.conflict_index;
     let hint_term = reply.conflict_term;
 
-    // tells us the last index it has is 0 since it only has one log the `init` log
-    // then we just send it everything after that
-    // assert_eq!(hint_index, state.logs[state.logs.len() - 1].index);
+    // check that the follower hinted to it's most recent log
     assert_eq!(hint_index, state.logs[state.logs.len() - 1].index);
     assert_eq!(hint_term.is_none(), true);
     assert_eq!(reply.success, false);
@@ -100,12 +99,14 @@ fn test_correct_hints_are_sent_with_updated_logs() {
         let reply = check_log_consistency(req, &mut state);
         if !reply.success {
             hint_index = hint_index - 1;
-            assert_eq!(reply.success, false, "haha");
+            assert_eq!(reply.success, true, "haha");
             continue;
         }
 
         assert_eq!(reply.success, true, "yooo");
         hint_index = hint_index + 1;
     }
-    // assert_eq!(state.logs, vec![]);
+
+    updated_logs.insert(0, LogEntry::default());
+    assert_eq!(state.logs, updated_logs);
 }

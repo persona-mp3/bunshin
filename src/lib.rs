@@ -4,8 +4,8 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 
 pub mod protocol;
-pub mod state_machine;
 pub const TIMEOUT: u64 = 10;
+mod handlers;
 pub mod utils;
 
 /// Sentinel value to represent that the node has just being initialised and
@@ -21,20 +21,17 @@ pub enum RaftState {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq)]
-pub struct Entry {
-    pub index: u64,
+pub struct LogEntry {
+    pub index: usize,
     pub term: u64,
     pub command: Command,
 }
 
-// impl Entry {
-// }
-
-impl Default for Entry {
+impl LogEntry {
     /// Returns an entry with index and term initialised as 0
     /// operation as "set", key as "init" and value as "init_value"
-    fn default() -> Self {
-        Entry {
+    pub fn default() -> Self {
+        LogEntry {
             index: 0,
             term: 0,
             command: Command {
@@ -67,36 +64,33 @@ impl Command {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct State {
     pub id: u64,
-    pub previous_log_index: u64,
-    pub previous_log_term: u64,
-    pub entries: Vec<Entry>,
-    pub commit_index: u64,
+    pub logs: Vec<LogEntry>,
+    pub commit_index: usize,
     /// log entries and state of the node is stored
     pub file_name: String,
     /// when current-leader is -1, no leader has being selected
-    pub current_leader: i32,
+    pub current_leader: Option<u64>,
+
     pub term: u64,
     /// vote is granted to a new candidate for a new term
-    pub vote: i64,
+    pub voted_for: Option<u64>,
+    pub rs: RaftState,
 }
 
 impl State {
     pub fn new(id: u64) -> State {
-        let previous_log_index = 0;
-        let previous_log_term = 0;
-        let entries: Vec<Entry> = vec![];
         let file_name = format!("node-{}-persist.json", id);
 
         State {
             id,
             commit_index: 0,
-            previous_log_index,
-            previous_log_term,
-            entries,
+            // initiate with sentinel value at 0
+            logs: vec![LogEntry::default()],
             file_name,
-            current_leader: -1,
+            current_leader: None,
             term: 0,
-            vote: 0,
+            voted_for: None,
+            rs: RaftState::Follower,
         }
     }
 
@@ -104,7 +98,7 @@ impl State {
     /// to `self.stop`. If no logs exists within such range, it returns the current
     /// value of `self.commit`. Otherwise it returns the index of the latest log
     /// that has been persisted
-    pub fn persist_till(&self, stop: u64) -> Result<u64> {
+    pub fn persist_till(&self, stop: u64) -> Result<usize> {
         let mut actual_stop_index = 0;
         let file = File::options()
             .create(true)
@@ -113,10 +107,7 @@ impl State {
 
         let mut writer = BufWriter::new(file);
 
-        if let Some(volatile_logs) = self
-            .entries
-            .get(self.commit_index as usize..stop as usize + 1)
-        {
+        if let Some(volatile_logs) = self.logs.get(self.commit_index as usize..stop as usize + 1) {
             for log in volatile_logs.iter() {
                 serde_json::to_writer(&mut writer, &log)
                     .with_context(|| "could not persist entry with serde".to_string())?;
@@ -133,7 +124,7 @@ impl State {
     }
 
     pub fn has_key(&self, key: &String) -> Option<Command> {
-        for entry in self.entries.iter().rev() {
+        for entry in self.logs.iter().rev() {
             if entry.command.key == *key {
                 if entry.command.operation == "rm" {
                     return None;
@@ -144,22 +135,43 @@ impl State {
         None
     }
 
-    pub fn append_entry(&mut self, entry: Entry) {
-        self.previous_log_index = entry.index;
-        self.previous_log_term = entry.term;
-        self.entries.push(entry);
+    pub fn append_entry(&mut self, entry: LogEntry) {
+        self.logs.push(entry);
     }
 
-    pub fn append_new_command(&mut self, cmd: &Command) -> Entry {
-        self.previous_log_index += 1;
+    /// get_leader must be called after has_leader to check if a leader
+    /// currently exists for this node, otherwise it panics
+    pub fn get_leader(&self) -> u64 {
+        self.current_leader.unwrap()
+    }
+    pub fn has_leader(&mut self) -> bool {
+        self.current_leader.is_some()
+    }
 
-        let entry = Entry {
-            index: self.previous_log_index,
-            term: self.previous_log_term,
-            command: cmd.clone(),
-        };
+    pub fn assign_leader(&mut self, id: u64) {
+        self.current_leader = Some(id);
+    }
 
-        self.entries.push(entry.clone());
-        entry
+    pub fn get_log_at_index(&self, idx: usize) -> Option<LogEntry> {
+        self.logs.get(idx).map(|entry| entry.clone())
+    }
+
+    pub fn get_last_log(&self) -> LogEntry {
+        if self.logs.len() == 0 {
+            // this node's logs is completely empty
+            LogEntry::default()
+        } else {
+            self.logs.get(self.logs.len() - 1).unwrap().clone()
+        }
+    }
+
+    pub fn truncate_from(&mut self, start_index: usize) {
+        // [1, 2, 3, 4, 5] truncate form idx 4, means split at 4
+        // let (truncated_logs, _) = self.logs.split_at(start_index);
+        // self.logs = truncated_logs.to_vec()
+        self.logs.truncate(start_index);
+    }
+    pub fn append_log(&mut self, log_entry: LogEntry) {
+        self.logs.push(log_entry)
     }
 }

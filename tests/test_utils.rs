@@ -1,5 +1,6 @@
+#![allow(unused)]
 use anyhow::{Context, Result};
-use bunshin::protocol::AppendEntry;
+use bunshin::protocol::AppendEntryReq;
 use std::fs;
 
 pub const TEST_NODE_ID: u64 = 1;
@@ -23,10 +24,10 @@ pub fn test_peers() -> Vec<String> {
     vec!["localhost:9001".to_string()]
 }
 
-pub fn default_append_entries() -> Vec<AppendEntry> {
+pub fn default_append_entries() -> Vec<AppendEntryReq> {
     vec![
-        AppendEntry::default(EXTERNAL_NODE_ID),
-        AppendEntry::default(EXTERNAL_NODE_ID),
-        AppendEntry::default(EXTERNAL_NODE_ID),
+        AppendEntryReq::default(EXTERNAL_NODE_ID),
+        AppendEntryReq::default(EXTERNAL_NODE_ID),
+        AppendEntryReq::default(EXTERNAL_NODE_ID),
     ]
 }

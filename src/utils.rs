@@ -18,11 +18,11 @@ pub fn random_timeout() -> time::Duration {
     Duration::from_secs(timeout)
 }
 
-pub fn send_and_recv<R: Iterator<Item = serde_json::Result<protocol::RPC>>>(
-    req: &protocol::RPC,
+pub fn send_and_recv<R: Iterator<Item = serde_json::Result<protocol::Rpc>>>(
+    req: &protocol::Rpc,
     writer: &mut BufWriter<TcpStream>,
     replies: &mut R,
-) -> Result<protocol::RPC> {
+) -> Result<protocol::Rpc> {
     serde_json::to_writer(&mut *writer, req).context("failed to send request to target node")?;
     writer.write_all(b"\n")?;
     writer.flush()?;

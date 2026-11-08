@@ -1,4 +1,10 @@
-use crate::{RaftState, State, handlers::run_follower, protocol::Packet, utils};
+use crate::{
+    RaftState, State,
+    handlers::{run_candidate, run_follower},
+    protocol::Packet,
+    transport::MakeRpc,
+    utils,
+};
 #[allow(unused)]
 use crossbeam::channel::{self, Receiver};
 use std::time::Duration;
@@ -15,13 +21,55 @@ impl Machine {
         Machine { id, peers, timeout }
     }
 
-    pub fn run(&mut self, state: &mut State, network_rx: &mut Receiver<Packet>) {
+    pub fn run(
+        &mut self,
+        mut state: &mut State,
+        network_rx: &mut Receiver<Packet>,
+        transport: &(impl MakeRpc + std::marker::Sync),
+    ) {
         let mut next_state = RaftState::Follower;
+        // TODO: There's a better way to do this
         loop {
             next_state = match next_state {
                 RaftState::Follower => {
                     let timeout = utils::random_timeout();
-                    run_follower(network_rx, state, timeout)
+                    let next_state = run_follower(network_rx, &mut state, timeout);
+                    println!("transitioning from Follower -> {:?}", next_state);
+                    assert_ne!(
+                        next_state,
+                        RaftState::Follower,
+                        "Follower state should not return to follower state"
+                    );
+                    assert_ne!(
+                        next_state,
+                        RaftState::Leader,
+                        "Follower state should not return to leader state"
+                    );
+                    state.rs = next_state.clone();
+                    next_state
+                }
+
+                RaftState::Candidate => {
+                    let timeout = utils::random_timeout();
+                    let next_state = run_candidate(
+                        network_rx,
+                        &mut state,
+                        timeout,
+                        self.peers.clone(),
+                        transport,
+                    );
+                    state.rs = next_state.clone();
+                    // println!("transitioning from Candidate -> {:?}", next_state);
+                    assert_ne!(
+                        next_state,
+                        RaftState::Candidate,
+                        "Candidate state should not return to Candidate state"
+                    );
+                    next_state
+                }
+                RaftState::Shutdown(msg) => {
+                    println!("shutting down: state: {:?}", msg);
+                    return;
                 }
                 _ => {
                     let _ = network_rx;

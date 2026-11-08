@@ -11,6 +11,7 @@ use bunshin::{
     State,
     machine::Machine,
     protocol::{Packet, Rpc},
+    transport::JsonRpcDialer,
 };
 
 #[derive(Parser, Debug, Clone)]
@@ -45,7 +46,8 @@ fn main() -> Result<()> {
     std::thread::spawn(move || {
         println!("state-machine started");
         let mut state = State::new(args.node_id);
-        machine.run(&mut state, &mut network_rx);
+        let transport = JsonRpcDialer {};
+        machine.run(&mut state, &mut network_rx, &transport);
         println!("state-machine has being shutdown");
         if let Err(err) = done_tx.send(()) {
             eprintln!("failed to shutdown main server: {}", err)

@@ -3,10 +3,12 @@ use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
-pub mod protocol;
 pub mod handlers;
 pub mod machine;
+pub mod protocol;
+pub mod transport;
 pub mod utils;
+
 pub const TIMEOUT: u64 = 10;
 
 /// Sentinel value to represent that the node has just being initialised and
@@ -18,7 +20,7 @@ pub enum RaftState {
     Leader,
     Follower,
     Candidate,
-    Shutdown,
+    Shutdown(String),
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq)]
@@ -137,6 +139,22 @@ impl State {
     }
 
     pub fn append_entry(&mut self, entry: LogEntry) {
+        // current_logs = [0, 1, 2, 3, 4]
+        // the next log should be entry.index should be 5
+        assert_eq!(
+            self.logs.len() + 1,
+            entry.index,
+            "
+            it is required that a new log getting appended 
+            must match the next index position of the logs.
+
+            all_logs: {:?}
+            new_index: {:?}
+
+            ",
+            self.logs,
+            entry
+        );
         self.logs.push(entry);
     }
 
@@ -174,5 +192,27 @@ impl State {
     }
     pub fn append_log(&mut self, log_entry: LogEntry) {
         self.logs.push(log_entry)
+    }
+
+    /// Raft uses the voting process to prevent a candidate from winning an election
+    /// unless its log contains all committed entries. A candidate must contact a
+    /// majority of the cluster in order to be elected, which means that every
+    /// committed entry must be present in at least one of those servers. If the
+    /// candidate's log is at least as up-to-date as any other log in that majority
+    /// (where "up-to-date" is defined precisely below), then it will hold all the
+    /// committed entries. The RequestVote RPC implements this restriction: the RPC
+    /// includes information about the candidate's log, and the voter denies its vote
+    /// if its own log is more up-to-date than that of the candidate.
+    ///
+    /// Raft determines which of two logs is more up-to-date by comparing the index
+    /// and term of the last entries in the logs. If the logs have last entries with
+    /// different terms, then the log with the later term is more up-to-date. If the
+    /// logs end with the same term, then whichever log is longer is more up-to-date.
+    pub fn candidate_log_is_up_to_date(&self, log_index: usize, log_term: u64) -> bool {
+        if log_index < self.logs.len() {
+            return false;
+        } else {
+            log_term >= self.get_last_log().term
+        }
     }
 }

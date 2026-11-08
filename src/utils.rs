@@ -18,7 +18,7 @@ pub fn random_timeout() -> time::Duration {
     Duration::from_secs(timeout)
 }
 
-pub fn send_and_recv<R: Iterator<Item = serde_json::Result<protocol::Rpc>>>(
+pub fn send_and_recv_json<R: Iterator<Item = serde_json::Result<protocol::Rpc>>>(
     req: &protocol::Rpc,
     writer: &mut BufWriter<TcpStream>,
     replies: &mut R,

@@ -16,7 +16,8 @@ pub struct Packet {
 pub enum Rpc {
     AppendEntryReq(AppendEntryReq),
     AppendEntryReply(AppendEntryReply),
-    Vote(VoteReq),
+    VoteReq(VoteReq),
+    VoteReply(VoteReply),
 }
 
 #[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Clone)]
@@ -48,20 +49,6 @@ pub struct AppendEntryReq {
     pub info: Option<String>,
 }
 
-impl AppendEntryReq {
-    pub fn default(id: u64) -> Self {
-        Self {
-            id,
-            term: 0,
-            previous_log_index: 0,
-            previous_log_term: 0,
-            entry: None,
-            commit_index: 0,
-            success: false,
-            info: None,
-        }
-    }
-}
 
 #[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Clone)]
 pub struct AppendEntryReply {
@@ -148,10 +135,34 @@ impl AppendEntryReply {
 pub struct VoteReq {
     pub id: u64,
     pub term: u64,
-    pub previous_log_index: usize,
-    pub previous_log_term: u64,
+    pub last_log_index: usize,
+    pub last_log_term: u64,
+}
+
+#[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Clone)]
+pub struct VoteReply {
+    pub id: u64,
+    pub term: u64,
     pub granted: bool,
 }
+
+
+
+impl AppendEntryReq {
+    pub fn default(id: u64) -> Self {
+        Self {
+            id,
+            term: 0,
+            previous_log_index: 0,
+            previous_log_term: 0,
+            entry: None,
+            commit_index: 0,
+            success: false,
+            info: None,
+        }
+    }
+}
+
 
 fn default_commit_index() -> u64 {
     0

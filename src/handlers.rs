@@ -1,14 +1,20 @@
-use crate::protocol::{AppendEntryReply, AppendEntryReq, Packet, Rpc};
 use crate::{RaftState, State};
+use crate::{
+    protocol::{AppendEntryReply, AppendEntryReq, Packet, Rpc, VoteReply, VoteReq},
+    transport::MakeRpc,
+};
 use crossbeam::channel::{self, Receiver, select};
-use std::time::Duration;
+use std::{thread, time::Duration};
 
 /// run_follower runs a single follower loop,listens over a network and handles incoming
-/// network connections via `network_rx`. It returns with a state of [RaftState::Candidate]
-/// when it's the given `timeout` has elpased or [RaftState::Shutdown] when the network
+/// network connections via `network_rx`. It returns with a state of [`RaftState::Candidate`]
+/// when it's the given `timeout` has elpased or [`RaftState::Shutdown`] when the network
 /// channel has being dropped.
 ///
-/// It panics when it receives a state to transition to from child functions
+/// NOTE: When it returns, the term is not incremented, instead this is handled by the
+/// the [`run_candidate`] function
+///
+/// It panics when it receives a state to transition to from children functions
 pub fn run_follower(
     network_rx: &mut Receiver<Packet>,
     state: &mut State,
@@ -22,7 +28,9 @@ pub fn run_follower(
                     Ok(msg) => msg,
                     Err(err) => {
                         println!("network channel has being dropped, shutting down: {}",  err);
-                        return RaftState::Shutdown;
+                        return RaftState::Shutdown(format!("
+                        network channel has being dropped while being a follower: {:?}a
+                        current_state: {:?}, ", err, state));
                     }
 
                 };
@@ -48,18 +56,208 @@ pub fn run_follower(
             }
 
             recv(timeout_ch) -> signal => {
-                println!("timeout has elapsed, moving to candidate");
                  match signal {
                     Ok(_) => {},
                     Err(err) => {
-                        println!("timer channel has being dropped, shutting down: {}",  err);
-                        return RaftState::Shutdown;
+                        return RaftState::Shutdown(format!("the timer channel for follower has being shutdown which is odd: {:?}", err));
                     }
                 }
                 return RaftState::Candidate;
             }
         }
     }
+}
+
+/// Section: 5.4.1
+/// Raft determines which of two logs is more up-to-date
+/// by comparing the index and term of the last entries in the
+/// logs. If the logs have last entries with different terms, then
+/// the log with the later term is more up-to-date. If the logs
+/// end with the same term, then whichever log is longer is
+/// more up-to-date.
+/// But then what about commited entries fromm previouis leaders?
+/// But we've not even implemented that yet?? So
+///
+///
+/// run_candidate increments the term it's electing for
+pub fn run_candidate(
+    network_rx: &mut Receiver<Packet>,
+    state: &mut State,
+    election_timeout: Duration,
+    peers: Vec<String>,
+    dialer: &(impl MakeRpc + std::marker::Sync),
+) -> RaftState {
+    // clear voted_for and leader and increment term
+    state.voted_for = None;
+    state.current_leader = None;
+    state.term += 1;
+
+    let last_log = state.get_last_log();
+
+    let (votes_tx, votes_rx) = channel::unbounded();
+    if peers.len() == 0 {
+        // TODO: we could make this an opt, but for now, lets enforce it
+        return RaftState::Shutdown(format!(
+            "cannot start Candidate without peers, this is a hard rule at the moment use --peers"
+        ));
+    }
+    for peer in &peers {
+        let votes_tx = votes_tx.clone();
+        let vote_req = VoteReq {
+            id: state.id,
+            term: state.term,
+            last_log_index: last_log.index,
+            last_log_term: last_log.term,
+        };
+
+        thread::scope(|s| {
+            s.spawn(|| {
+                let resp = match dialer.dial(peer, Rpc::VoteReq(vote_req)) {
+                    Ok(rpc) => rpc,
+                    Err(err) => {
+                        println!("rpc_dial_err: {:?}", err);
+                        return;
+                    }
+                };
+                let _ = votes_tx.send(resp);
+            });
+        });
+    }
+    let timeout = channel::after(election_timeout);
+    drop(votes_tx);
+
+    let mut recvd_votes = 0;
+    let majority = (peers.len() / 2) + 1;
+
+    loop {
+        select! {
+            recv(network_rx) -> packet => {
+                unimplemented!("unhandled network_recv in run_candidate: {:?}", packet);
+
+            }
+            recv(timeout) -> _signal => {
+                break
+            }
+            recv(votes_rx) -> signal => {
+                let rpc_reply = match signal {
+                    Ok(result) =>  result,
+                    Err(_err) => {
+                        continue;
+                    },
+                };
+
+                match rpc_reply {
+                    Rpc::VoteReply(reply) => {
+                        if reply.granted {
+                            recvd_votes += 1;
+                            println!("granted vote from {:?}, checking majority", reply);
+                            // now check if we've acheived majority
+                            if recvd_votes >= majority {
+                                println!("won election, recvd: {:?} votes against {:?}", recvd_votes, majority);
+                                return RaftState::Leader;
+                            }
+                        } else {
+                            // we don't necessarily need to check the term here because if that node
+                            // is higher, it could be the only possible node whose term in the whole
+                            // cluster is higher, it hasn't reached other nodes, and this node still
+                            // has a chance
+                            println!("denied vote from {:?}", reply);
+                        }
+                    },
+                    _ => {
+                        println!("Candidate:{:?} \trecvd unexpected reply from vote_reply {:?} ", state.id, rpc_reply);
+                    }
+                }
+
+
+            }
+        }
+    }
+
+    println!(
+        "Candidate:{:?} \ttimeout election fired first, checking results",
+        state.id
+    );
+
+    if recvd_votes >= majority {
+        println!(
+            "Candidate:{:?} \twon election, recvd: {:?} votes against {:?} for term: {:?}",
+            state.id, recvd_votes, majority, state.term,
+        );
+        // and then we actually want to update our stats
+        state.voted_for = Some(state.id);
+        state.current_leader = Some(state.id);
+        RaftState::Leader
+    } else {
+        println!(
+            "Candidate:{:?} \tlost election recvd {:?} votes, against {:?} majority for term: {:?}",
+            state.id, recvd_votes, majority, state.term,
+        );
+        RaftState::Follower
+    }
+}
+
+pub fn handle_vote_request(req: VoteReq, state: &mut State) -> (VoteReply, Option<RaftState>) {
+    match state.rs {
+        RaftState::Follower => unimplemented!("follower not handling vote_requests"),
+        RaftState::Candidate => {
+            // SAFETY : So there's no explicit mention or I haven't seen it yet, that
+            // a Candidate doesn't need to check another candidates log. It simply
+            // rejects it's VoteRpc since it's already granted vote to itself.
+            // If the VoteRpc came from a higher term, it should update it's term
+            // and step down
+            // The election restriction was that, before voting a candidate, you need
+            // to check if their logs are up to date, doesn't that apply here? Since
+            // the node is a Candidate, it will only accept higher terms, so in effect
+            // it's voting for a higher term, but what if IT's own logs are more than
+            // that of the sender? We should come back to this.
+            //
+
+            // if term is higher, then drop down to follower
+            if req.term > state.term {
+                state.term = req.term;
+                state.voted_for = Some(req.id);
+                state.current_leader = Some(req.id);
+
+                println!(
+                    "Candidate:{} \trecvd vote request from a higher_term: {:?}, {:?}",
+                    state.id, req.term, req
+                );
+
+                return (
+                    VoteReply {
+                        id: state.id,
+                        granted: true,
+                        term: state.term,
+                    },
+                    Some(RaftState::Follower),
+                );
+            };
+
+            return (
+                VoteReply {
+                    id: state.id,
+                    granted: false,
+                    term: state.term,
+                },
+                Some(RaftState::Follower),
+            );
+        }
+        _ => {
+            println!(
+                "unhanlded case in handle_vote_request: state:{:?}, vote_req:{:?}",
+                state, req
+            );
+        }
+    }
+    (
+        VoteReply {
+            id: state.id,
+            granted: false,
+            term: state.term,
+        },
+        None,
+    )
 }
 
 pub fn handle_append_entry_request(

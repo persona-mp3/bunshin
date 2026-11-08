@@ -20,57 +20,67 @@ struct Cli {
     node_id: u64,
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
     let args = Cli::parse();
     let addr = format!("localhost:{}", args.port);
     let conn = match TcpStream::connect(addr) {
         Ok(stream) => stream,
         Err(err) => {
-            return Err(format!(
+            println!(
                 "could not connect to {}. please make sure it is running. reason: {}",
                 args.port, err
-            )
-            .into());
+            );
+            return;
         }
     };
 
-    let mut reader = BufReader::new(conn.try_clone()?);
+    let mut reader = BufReader::new(conn.try_clone().unwrap());
     let mut writer = BufWriter::new(conn);
 
-    test_leader_recognition(args.node_id, &mut reader, &mut writer)?;
+    match test_leader_recognition(args.node_id, &mut reader, &mut writer) {
+        Ok(_) => {}
+        Err(err) => {
+            eprintln!("{}", err);
+            return;
+        }
+    };
     println!("{GREEN}leader_recognition passed{RESET}");
-    test_node_appends_logs(args.node_id, &mut reader, &mut writer)?;
-    Ok(())
+    match test_node_appends_logs(args.node_id, &mut reader, &mut writer) {
+        Ok(_) => {}
+        Err(err) => {
+            eprintln!(" {}", err);
+        }
+    }
 }
 
 /// test_leader_recognition sends two rpcs. If the target node has just started
 /// it is expected to acknowledge the first this node as a leader, hence the first
-/// request must return `protocol::AppendEntry.success` as true. The second rpc
-/// is contains another id and the node should reject it sending `protocol::AppendEntry.success`
+/// request must return `protocol::AppendEntryReq.success` as true. The second rpc
+/// is contains another id and the node should reject it sending `protocol::AppendEntryReq.success`
 /// as false. No data is sent across
 fn test_leader_recognition(
     target_node_id: u64,
     reader: &mut BufReader<TcpStream>,
     writer: &mut BufWriter<TcpStream>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let request = protocol::AppendEntry::new(TEST_ID);
-    let rpc_request = protocol::RPC::AppendEntry(request.clone());
+    let request = protocol::AppendEntryReq::default(TEST_ID);
+    let rpc_request = protocol::Rpc::AppendEntryReq(request.clone());
     // QUESTION: we simply want to reborrow the underlying write stream??
     serde_json::to_writer(&mut *writer, &rpc_request)?;
     writer.write_all(b"\n")?;
     writer.flush()?;
 
     let mut json_reader =
-        serde_json::Deserializer::from_reader(reader).into_iter::<protocol::RPC>();
+        serde_json::Deserializer::from_reader(reader).into_iter::<protocol::Rpc>();
     let inital_response = match json_reader.next().unwrap() {
         Ok(res) => res,
         Err(err) => return Err(format!("failed to read response: {}", err).into()),
     };
 
-    let mut expected_initial_response = protocol::AppendEntry::new(target_node_id);
+    let mut expected_initial_response = protocol::AppendEntryReply::default(target_node_id);
     expected_initial_response.success = true;
     match inital_response {
-        protocol::RPC::AppendEntry(reply) => {
+        protocol::Rpc::AppendEntryReply(reply) => {
             assert_eq!(expected_initial_response, reply);
         }
 
@@ -86,21 +96,23 @@ fn test_leader_recognition(
     println!("{GREEN}initial response success{RESET}");
 
     let invalid_id = 8902;
-    let invalid_request = protocol::AppendEntry::new(invalid_id);
+    let invalid_request = protocol::AppendEntryReq::default(invalid_id);
 
-    let invalid_rpc = protocol::RPC::AppendEntry(invalid_request.clone());
+    let invalid_rpc = protocol::Rpc::AppendEntryReq(invalid_request.clone());
 
     serde_json::to_writer(&mut *writer, &invalid_rpc)?;
     writer.write_all(b"\n")?;
     writer.flush()?;
 
-    let mut expected_invalid_reply = protocol::AppendEntry::new(target_node_id);
+    let mut expected_invalid_reply = protocol::AppendEntryReply::default(target_node_id);
     expected_invalid_reply.success = false;
-    expected_invalid_reply.info = Some("unrecognized as leader".to_string());
 
-    let new_response = json_reader.next().unwrap()?;
-    match new_response {
-        protocol::RPC::AppendEntry(reply) => {
+    let default_response = json_reader.next();
+    let default_response = default_response.unwrap();
+    let default_response = default_response.unwrap();
+
+    match default_response {
+        protocol::Rpc::AppendEntryReply(reply) => {
             assert_eq!(
                 expected_invalid_reply, reply,
                 "{RED}node is supposed to reject request from an unrecognized leader
@@ -111,9 +123,11 @@ fn test_leader_recognition(
         }
 
         _ => {
-            return Err(
-                format!("{RED}expected append_entry, got: {:?}{RESET}", new_response).into(),
-            );
+            return Err(format!(
+                "{RED}expected AppendEntryReply, got: {:?}{RESET}",
+                default_response
+            )
+            .into());
         }
     }
     println!("{GREEN}invalid response passed{RESET}");
@@ -126,13 +140,13 @@ fn test_node_appends_logs(
     writer: &mut BufWriter<TcpStream>,
 ) -> Result<()> {
     // send 3 logs, and test against previous_log_indexes
-    let mut append_entry_requests = Vec::new();
-    let base_append_entry = protocol::AppendEntry {
+    let mut append_entry_requests = Vec::default();
+    let base_append_entry = protocol::AppendEntryReq {
         id: TEST_ID,
         previous_log_index: 0,
         previous_log_term: 0,
         commit_index: 0,
-        entry: Some(bunshin::Entry {
+        entry: Some(bunshin::LogEntry {
             index: 1,
             term: 1,
             command: bunshin::Command {
@@ -150,7 +164,7 @@ fn test_node_appends_logs(
     let mut second_append_entry = base_append_entry.clone();
     second_append_entry.previous_log_index = 1;
     second_append_entry.previous_log_term = 1;
-    second_append_entry.entry = Some(bunshin::Entry {
+    second_append_entry.entry = Some(bunshin::LogEntry {
         index: 2,
         term: 1,
         command: bunshin::Command {
@@ -163,39 +177,41 @@ fn test_node_appends_logs(
     append_entry_requests.push(second_append_entry);
 
     let mut json_reader =
-        serde_json::Deserializer::from_reader(reader).into_iter::<protocol::RPC>();
+        serde_json::Deserializer::from_reader(reader).into_iter::<protocol::Rpc>();
 
     let mut failed_count = 0;
 
     for req in append_entry_requests {
         let reply = send_and_recv(
-            &protocol::RPC::AppendEntry(req.clone()),
+            &protocol::Rpc::AppendEntryReq(req.clone()),
             writer,
             &mut json_reader,
         )?;
         match reply {
-            protocol::RPC::AppendEntry(rpc_reply) => {
+            protocol::Rpc::AppendEntryReply(rpc_reply) => {
                 // check if log indexes match
-                if req.entry.as_ref().unwrap().index != rpc_reply.previous_log_index
-                    || req.entry.as_ref().unwrap().term != rpc_reply.previous_log_term
+                if !rpc_reply.success
+                // if req.entry.as_ref().unwrap().index != rpc_reply.conflict_index
+                // || req.entry.as_ref().unwrap().term != rpc_reply.previous_log_term
                 {
                     let err_msg = format!(
                         "{RED} log_consistency broken. (log_index, log_term)
-                            expected ({}, {}), got ({}, {}) {RESET}
+                            expected ({}, {}), got ({}, {:?}) {RESET}
                             ",
                         req.entry.as_ref().unwrap().index,
                         req.entry.as_ref().unwrap().term,
-                        rpc_reply.previous_log_index,
-                        rpc_reply.previous_log_term
+                        rpc_reply.conflict_index,
+                        rpc_reply.conflict_term
                     );
 
                     failed_count += 1;
                     println!("{}", err_msg)
                 };
             }
+
             _ => {
                 return Err(anyhow!(format!(
-                    "{RED} [test_node_appends_logs] expected AppendEntryRPC got {:?} {RESET}",
+                    "{RED} [test_node_appends_logs] expected AppendEntryRpc got {:?} {RESET}",
                     reply
                 )));
             }
@@ -208,11 +224,11 @@ fn test_node_appends_logs(
     Ok(())
 }
 
-fn send_and_recv<R: Iterator<Item = serde_json::Result<protocol::RPC>>>(
-    req: &protocol::RPC,
+fn send_and_recv<R: Iterator<Item = serde_json::Result<protocol::Rpc>>>(
+    req: &protocol::Rpc,
     writer: &mut BufWriter<TcpStream>,
     replies: &mut R,
-) -> Result<protocol::RPC> {
+) -> Result<protocol::Rpc> {
     serde_json::to_writer(&mut *writer, req).context("failed to send request to target node")?;
     writer.write_all(b"\n")?;
     writer.flush()?;

@@ -1,4 +1,4 @@
-use bunshin::{LogEntry, RaftState, ShutdownErrors, State, handlers::run_follower, protocol::*};
+use bunshin::{LogEntry, RaftState, ShutdownErrors, State, follower::run_follower, protocol::*};
 use crossbeam::channel;
 use std::{
     sync::{Arc, Mutex},

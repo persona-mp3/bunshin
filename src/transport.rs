@@ -33,7 +33,7 @@ impl MakeRpc for JsonRpcDialer {
         let conn =
             TcpStream::connect(addr).with_context(|| format!("failed to connect to {:?}", addr))?;
 
-        println!("connected to {} successfully", addr);
+        println!("dialed {}", addr);
         let mut writer = BufWriter::new(
             conn.try_clone()
                 .with_context(|| format!("failed to clone connection for writing"))?,

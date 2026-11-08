@@ -147,6 +147,7 @@ fn run_network(addrs: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             .arg("--peers")
             .arg(peers.join(","));
 
+        println!("./bunshin {:?}", command.get_args());
         match command.spawn() {
             Ok(child) => {
                 instances.insert(

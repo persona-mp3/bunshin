@@ -26,7 +26,7 @@ fn main() {
     let conn = match TcpStream::connect(addr) {
         Ok(stream) => stream,
         Err(err) => {
-            println!(
+            eprintln!(
                 "could not connect to {}. please make sure it is running. reason: {}",
                 args.port, err
             );

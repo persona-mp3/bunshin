@@ -1,4 +1,4 @@
-use bunshin::{LogEntry, State, handlers::run_follower, protocol::*};
+use bunshin::{LogEntry, RaftState, ShutdownErrors, State, handlers::run_follower, protocol::*};
 use crossbeam::channel;
 use std::{
     sync::{Arc, Mutex},
@@ -17,11 +17,11 @@ fn test_follower_accepts_higher_term_append_entry() {
 
     let locked = Arc::new(Mutex::new(state));
     let clone = Arc::clone(&locked);
-    std::thread::spawn(move || {
+    let runner_thread = std::thread::spawn(move || {
         let mut s = clone.lock().expect("failed to acquire lock for state");
         let timeout = Duration::from_secs(test_utils::TIMEOUT_DURATION_SECS);
 
-        run_follower(&mut network_rx, &mut *s, timeout);
+        run_follower(&mut network_rx, &mut *s, timeout)
     });
 
     // acks higher term
@@ -44,15 +44,19 @@ fn test_follower_accepts_higher_term_append_entry() {
         .recv()
         .expect("failed to recv packet from follower state machine");
 
+    // force follower loop to shutdown
+    drop(network_tx);
     let mut expected_reply = AppendEntryReply::default(test_utils::TEST_NODE_ID);
     expected_reply.term = higher_term;
     expected_reply.success = true;
     expected_reply.reset_timer = true;
 
     assert_eq!(reply, Rpc::AppendEntryReply(expected_reply));
-
-    // force follower loop to shutdown
-    drop(network_tx);
+    let return_state = runner_thread.join().unwrap();
+    assert_eq!(
+        return_state,
+        RaftState::Shutdown(ShutdownErrors::NetworkDrop)
+    );
 
     let mut final_state = locked.lock().expect("could not get lock for state");
     assert_eq!(

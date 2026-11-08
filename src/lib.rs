@@ -16,11 +16,18 @@ pub const TIMEOUT: u64 = 10;
 pub const ABSENT_LEADER: i32 = -1;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
+pub enum ShutdownErrors {
+    NetworkDrop,
+    Unexpected,
+    Custom(String),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum RaftState {
     Leader,
     Follower,
     Candidate,
-    Shutdown(String),
+    Shutdown(ShutdownErrors),
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq)]

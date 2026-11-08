@@ -1,4 +1,4 @@
-use crate::{RaftState, State};
+use crate::{RaftState, ShutdownErrors, State};
 use crate::{
     protocol::{AppendEntryReply, AppendEntryReq, Packet, Rpc, VoteReply, VoteReq},
     transport::MakeRpc,
@@ -27,10 +27,8 @@ pub fn run_follower(
                 let envelope = match signal {
                     Ok(msg) => msg,
                     Err(err) => {
-                        println!("network channel has being dropped, shutting down: {}",  err);
-                        return RaftState::Shutdown(format!("
-                        network channel has being dropped while being a follower: {:?}a
-                        current_state: {:?}, ", err, state));
+                        println!("network closed while follower: {:?} current_state: {:?}, ", err, state);
+                        return RaftState::Shutdown(ShutdownErrors::NetworkDrop);
                     }
 
                 };
@@ -44,13 +42,20 @@ pub fn run_follower(
                    // ignore send fialures
                    let _ = envelope.sender.try_send(Rpc::AppendEntryReply(reply));
 
-                   debug_assert!(
-                       transition.is_none(),
-                       // A follower can only move to a Candidate and that is handled within this
-                       // loop
-                       "follower should never recv a transition state except Shutdown, got: {:?}",
-                       transition
-                       );
+                    // A follower can only move to a Candidate and that is handled within this
+                    // loop, so other children functions should not for a follower
+                   if transition.is_some() {
+                       let next = transition.unwrap();
+                       assert_eq!(next, RaftState::Follower, "Follower -> Shutdown only allowed in run_follower");
+                       assert_eq!(next, RaftState::Candidate, "Follower -> Shutdown only allowed in run_follower");
+                       return next;
+                   }
+
+                   // debug_assert!(
+                   //     transition.is_none(),
+                   //     "follower should never recv a transition state except Shutdown, got: {:?}",
+                   //     transition
+                   //     );
 
                }
             }
@@ -59,7 +64,8 @@ pub fn run_follower(
                  match signal {
                     Ok(_) => {},
                     Err(err) => {
-                        return RaftState::Shutdown(format!("the timer channel for follower has being shutdown which is odd: {:?}", err));
+                        println!( "the timer channel for follower has being shutdown which is odd: {:?}", err);
+                        return RaftState::Shutdown(ShutdownErrors::Unexpected);
                     }
                 }
                 return RaftState::Candidate;
@@ -97,9 +103,10 @@ pub fn run_candidate(
     let (votes_tx, votes_rx) = channel::unbounded();
     if peers.len() == 0 {
         // TODO: we could make this an opt, but for now, lets enforce it
-        return RaftState::Shutdown(format!(
+        println!(
             "cannot start Candidate without peers, this is a hard rule at the moment use --peers"
-        ));
+        );
+        return RaftState::Shutdown(ShutdownErrors::Unexpected);
     }
     for peer in &peers {
         let votes_tx = votes_tx.clone();
@@ -198,6 +205,11 @@ pub fn run_candidate(
 }
 
 pub fn handle_vote_request(req: VoteReq, state: &mut State) -> (VoteReply, Option<RaftState>) {
+    let mut reply = VoteReply {
+        id: state.id,
+        granted: false,
+        term: state.term,
+    };
     match state.rs {
         RaftState::Follower => unimplemented!("follower not handling vote_requests"),
         RaftState::Candidate => {
@@ -224,40 +236,22 @@ pub fn handle_vote_request(req: VoteReq, state: &mut State) -> (VoteReply, Optio
                     state.id, req.term, req
                 );
 
-                return (
-                    VoteReply {
-                        id: state.id,
-                        granted: true,
-                        term: state.term,
-                    },
-                    Some(RaftState::Follower),
-                );
+                reply.granted = true;
+                reply.term = state.term;
+                return (reply, Some(RaftState::Follower));
             };
 
-            return (
-                VoteReply {
-                    id: state.id,
-                    granted: false,
-                    term: state.term,
-                },
-                Some(RaftState::Follower),
-            );
+            // ignore similar or lower terms
+            return (reply, None);
         }
         _ => {
             println!(
                 "unhanlded case in handle_vote_request: state:{:?}, vote_req:{:?}",
                 state, req
             );
+            return (reply, Some(RaftState::Shutdown(ShutdownErrors::Unexpected)));
         }
     }
-    (
-        VoteReply {
-            id: state.id,
-            granted: false,
-            term: state.term,
-        },
-        None,
-    )
 }
 
 pub fn handle_append_entry_request(
@@ -328,10 +322,17 @@ pub fn handle_append_entry_request(
                 None,
             );
         }
-        _ => {}
+        _ => {
+            println!(
+                "unahndled case in handle_append_entry_request: state: {:?}, request: {:?}",
+                state, req
+            );
+            return (
+                AppendEntryReply::default(state.id),
+                Some(RaftState::Shutdown(ShutdownErrors::Unexpected)),
+            );
+        }
     }
-
-    panic!("unhandled case")
 }
 
 pub fn check_log_consistency(req: AppendEntryReq, state: &mut State) -> AppendEntryReply {

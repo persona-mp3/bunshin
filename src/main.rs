@@ -82,7 +82,7 @@ pub fn start_server(addr: String, sender: Sender<Packet>, done: Receiver<()>) {
         }
     }
 
-    println!("server shutdown")
+    println!("server shutdown successfully")
 }
 
 fn handle_conn(

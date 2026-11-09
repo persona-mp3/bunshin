@@ -11,16 +11,15 @@ pub mod protocol;
 pub mod transport;
 pub mod utils;
 
-pub const TIMEOUT: u64 = 10;
-
-/// Sentinel value to represent that the node has just being initialised and
-/// has no leader, or is in Candidate state
-pub const ABSENT_LEADER: i32 = -1;
-
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ShutdownErrors {
+    /// Represents that the server or state machine longer listens for network rpcs
     NetworkDrop,
+
+    /// Represents unhandled or unexpected cases
     Unexpected,
+
+    /// Provides more descriptive error messages
     Custom(String),
 }
 
@@ -75,18 +74,30 @@ impl Command {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct State {
+    /// id of the current node
     pub id: u64,
+
+    /// current term the node is in
+    pub term: u64,
+
+    // TODO: this is not updated anywhere
+    /// internal state of the node
+    pub rs: RaftState,
+
+    /// stores log entries received or stored
     pub logs: Vec<LogEntry>,
+
+    /// represents all logs that are all persisted to disk
     pub commit_index: usize,
+
     /// log entries and state of the node is stored
     pub file_name: String,
+
     /// when current-leader is -1, no leader has being selected
     pub current_leader: Option<u64>,
 
-    pub term: u64,
     /// vote is granted to a new candidate for a new term
     pub voted_for: Option<u64>,
-    pub rs: RaftState,
 }
 
 impl State {

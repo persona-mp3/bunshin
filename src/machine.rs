@@ -2,10 +2,10 @@ use crate::{
     RaftState, State, candidate::run_candidate, follower::run_follower, protocol::Packet,
     transport::Transport, utils,
 };
-#[allow(unused)]
-use crossbeam::channel::{self, Receiver};
+use crossbeam::channel::Receiver;
 use std::time::Duration;
 
+#[derive(Debug)]
 pub struct Machine {
     pub id: u64,
     pub peers: Vec<String>,
@@ -20,7 +20,7 @@ impl Machine {
 
     pub fn run(
         &mut self,
-        mut state: &mut State,
+        state: &mut State,
         network_rx: &mut Receiver<Packet>,
         transport: Transport,
     ) {
@@ -48,15 +48,9 @@ impl Machine {
 
                 RaftState::Candidate => {
                     let timeout = utils::random_timeout();
-                    let next_state = run_candidate(
-                        network_rx,
-                        state,
-                        timeout,
-                        self.peers.clone(),
-                        transport,
-                    );
+                    let next_state =
+                        run_candidate(network_rx, state, timeout, self.peers.clone(), transport);
                     state.rs = next_state.clone();
-                    // println!("transitioning from Candidate -> {:?}", next_state);
                     assert_ne!(
                         next_state,
                         RaftState::Candidate,

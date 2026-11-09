@@ -30,7 +30,6 @@ pub fn run_candidate(
     state.voted_for = None;
     state.current_leader = None;
     state.term += 1;
-    // println!("[candidtate:{}] peers to connect: {:?}", state.id, peers);
 
     let last_log = state.get_last_log();
 
@@ -42,8 +41,6 @@ pub fn run_candidate(
         );
         return RaftState::Shutdown(ShutdownErrors::Unexpected);
     }
-    // thread::scope(|s| {
-    // });
 
     for peer in peers.clone() {
         let votes_tx = votes_tx.clone();

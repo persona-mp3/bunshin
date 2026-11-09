@@ -25,7 +25,7 @@ pub fn handle_append_entry_request(
             // it could happend on the following occasions:
             // - we lost a previous election due to a timeout or
             // - no votes were granted
-            //      -  node was partitioned from the cluster for a moment and had no one to contact
+            //  -  node was partitioned from the cluster and couldn't reach anyone
             if !state.has_leader() {
                 println!("no leader for current term, accepting {:?}", req);
                 state.assign_leader(req.id);
@@ -84,18 +84,21 @@ pub fn handle_append_entry_request(
 }
 
 /// check_log_consistency takes the `previous_log_index` and `previous_log_term`
-/// from a request and checks if it has any any log at that index. If it doesn't
-/// have any log at that index, it rejects the request. But it also provides a
-/// hint to the leader via the [`AppendEntryReply.conflict_index`] which is the
-/// index of last log that it has. If it does have an entry at there and the
-/// terms do not match, the [`AppendEntryReply.conflict_term`] is updated too with
-/// such term.
+/// from a request and checks if it has any any log at that index. 
+/// - If it doesn't have any log at that index, it rejects the request. 
+///   But it also provides a hint to the leader via the [`AppendEntryReply.conflict_index`] 
+///   which, the index of last log that it has.
 ///
-/// If the check above is done succesfully, it then checks if the [`AppendEntry.enty`]
-/// has a value. If it does a check before it appends this new entry to it's log.
-/// If a log already exists at that index, it truncates it's logs from that starting point
-/// before appending to it, making sure that it's logs are still consitent with that
-/// of the Leader's
+/// - If it does have an entry at that index and the terms do not match, the 
+///   [`AppendEntryReply.conflict_term`] is updated with that log's term.
+///
+/// If the above checks have are succesfully, it then checks if the request came 
+/// with a new entry [`AppendEntryReq.entry`]. If it doesn't it's considered a heartbeat
+///
+/// If it does contain a new entry, it checks before inserting into it's own 
+/// logs that nothing there exists. If there exists one and it's different from 
+/// the request's, the log is truncated before appending the new one. If the logs
+/// are different, it simply ignores it
 ///
 /// It also sets the [`AppendEntryReply.reset_timer`] field to true and [`State.term`] to
 /// match the current term of the request
@@ -108,7 +111,7 @@ pub fn check_log_consistency(req: AppendEntryReq, state: &mut State) -> AppendEn
     let last_log = state.get_last_log();
 
     // we first check if we have any log at the previous_log_index
-    // if it doesn't exists, we need to reject the reject the request, and send
+    // if it doesn't exist, we need to reject the reject the request, and send
     // a hint to the sender/leader what our last_log.index and last_log.term lies at.
     // Hence the leader can simply skip closer to the hint we supply under.
     // If we do have an log at such index and the terms differ, we set both conflict_index
@@ -180,13 +183,13 @@ pub fn handle_vote_request(req: VoteReq, state: &mut State) -> (VoteReply, Optio
                 );
                 return (reply, None);
             } else if state.term == req.term {
-                // TODO: should this be possible, why should someone vote for current term? for
-                // safety lets ignore it
+                // this is possible as a node might have been partitioned from the cluster 
+                // and hasn't seen new term changes. for example, it can send requests
+                // but cannot receive responses
                 println!(
                     "Follower:{} \trecvd a vote request for current term: {:?}, current_state: {:?}, vote_req: {:?}",
                     state.id, state.term, state, req
                 );
-                // return (reply, Some(RaftState::Shutdown(ShutdownErrors::Unexpected)));
                 return (reply, None);
             } else {
                 state.term = req.term;
@@ -213,7 +216,6 @@ pub fn handle_vote_request(req: VoteReq, state: &mut State) -> (VoteReply, Optio
             // the node is a Candidate, it will only accept higher terms, so in effect
             // it's voting for a higher term, but what if IT's own logs are more than
             // that of the sender? We should come back to this.
-            //
 
             // if term is higher, then drop down to follower
             if req.term > state.term {

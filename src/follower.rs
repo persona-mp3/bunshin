@@ -32,7 +32,6 @@ pub fn run_follower(
                     }
 
                 };
-                // println!("\t\tfollower:{} new packet: {:?}", state.id, packet.rpc);
                 match packet.rpc {
                     Rpc::AppendEntryReq(req) => {
                        let (reply, transition) = handle_append_entry_request(req, state);

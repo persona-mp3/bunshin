@@ -45,7 +45,7 @@ pub fn handle_append_entry_request(
 
             // now terms are equal, and we have a valid leader that matches our stored one
             let reply = check_log_consistency(req, state);
-            return (reply, None);
+            (reply, None)
         }
 
         RaftState::Candidate => {
@@ -58,7 +58,7 @@ pub fn handle_append_entry_request(
             }
 
             // just reject lower or equal terms
-            return (
+            (
                 AppendEntryReply {
                     id: state.id,
                     term: state.term,
@@ -68,17 +68,17 @@ pub fn handle_append_entry_request(
                     success: false,
                 },
                 None,
-            );
+            )
         }
         _ => {
             println!(
                 "unahndled case in handle_append_entry_request: state: {:?}, request: {:?}",
                 state, req
             );
-            return (
+            (
                 AppendEntryReply::default(state.id),
                 Some(RaftState::Shutdown(ShutdownErrors::Unexpected)),
-            );
+            )
         }
     }
 }
@@ -199,8 +199,8 @@ pub fn handle_vote_request(req: VoteReq, state: &mut State) -> (VoteReply, Optio
                     );
                     return (reply, None);
                 }
-                return (reply, None);
-            };
+                (reply, None)
+            }
         }
         RaftState::Candidate => {
             // SAFETY : So there's no explicit mention or I haven't seen it yet, that
@@ -232,14 +232,14 @@ pub fn handle_vote_request(req: VoteReq, state: &mut State) -> (VoteReply, Optio
             };
 
             // ignore similar or lower terms
-            return (reply, None);
+            (reply, None)
         }
         _ => {
             println!(
                 "Candidate:{:?} \tunhanlded case in handle_vote_request: state:{:?}, vote_req:{:?}",
                 state.id, state, req
             );
-            return (reply, Some(RaftState::Shutdown(ShutdownErrors::Unexpected)));
+            (reply, Some(RaftState::Shutdown(ShutdownErrors::Unexpected)))
         }
     }
 }

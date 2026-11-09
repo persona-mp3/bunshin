@@ -30,7 +30,7 @@ impl Machine {
             next_state = match next_state {
                 RaftState::Follower => {
                     let timeout = utils::random_timeout();
-                    let next_state = run_follower(network_rx, &mut state, timeout);
+                    let next_state = run_follower(network_rx, state, timeout);
                     println!("transitioning from Follower -> {:?}", next_state);
                     assert_ne!(
                         next_state,
@@ -50,7 +50,7 @@ impl Machine {
                     let timeout = utils::random_timeout();
                     let next_state = run_candidate(
                         network_rx,
-                        &mut state,
+                        state,
                         timeout,
                         self.peers.clone(),
                         transport,

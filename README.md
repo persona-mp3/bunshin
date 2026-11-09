@@ -83,3 +83,20 @@ the  binary `tester` is created.
 ```bash
 ./tester --node-id <id_of_node_running> --port <port_node_is_listening>
 ```
+
+Milestones
+---
+
+[ ]  Leader state
+
+[X]  Follower state
+
+[X]  Candidate state
+
+[X]  Log check
+
+[ ]  commiting entries from leader
+
+[X]  data persistence of new logs
+
+[X]  Leader election

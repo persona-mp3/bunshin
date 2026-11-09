@@ -35,7 +35,7 @@ pub fn run_candidate(
     let last_log = state.get_last_log();
 
     let (votes_tx, votes_rx) = channel::unbounded();
-    if peers.len() == 0 {
+    if peers.is_empty() {
         // TODO: we could make this an opt, but for now, lets enforce it
         println!(
             "cannot start Candidate without peers, this is a hard rule at the moment use --peers"

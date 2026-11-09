@@ -26,13 +26,13 @@ pub fn json_transport_dialer(addr: &str, req: Rpc) -> Result<Rpc> {
     println!("dialed {}", addr);
     let mut writer = BufWriter::new(
         conn.try_clone()
-            .with_context(|| format!("failed to clone connection for writing"))?,
+            .with_context(|| "failed to clone connection for writing".to_string())?,
     );
 
     let reader = BufReader::new(conn);
     let mut json_reader = serde_json::Deserializer::from_reader(reader).into_iter();
-    let response = send_and_recv_json(&req, &mut writer, &mut json_reader);
-    response
+    
+    send_and_recv_json(&req, &mut writer, &mut json_reader)
 }
 
 /// JsonRpcDialer connects with clients over TCP and uses [`utils::send_and_recv_json`]
@@ -48,13 +48,13 @@ impl MakeRpc for JsonRpcDialer {
         println!("dialed {}", addr);
         let mut writer = BufWriter::new(
             conn.try_clone()
-                .with_context(|| format!("failed to clone connection for writing"))?,
+                .with_context(|| "failed to clone connection for writing".to_string())?,
         );
 
         let reader = BufReader::new(conn);
         let mut json_reader = serde_json::Deserializer::from_reader(reader).into_iter();
-        let response = send_and_recv_json(&req, &mut writer, &mut json_reader);
-        response
+        
+        send_and_recv_json(&req, &mut writer, &mut json_reader)
     }
 }
 
@@ -70,7 +70,7 @@ impl MakeRpc for MockAppendEntryDialer {
 #[allow(unused)]
 fn example_use() {
     let mut rpc_threads = vec![];
-    for addr in vec!["baby", "goat", "red", "chinese", "japan"] {
+    for addr in ["baby", "goat", "red", "chinese", "japan"] {
         let dialer = JsonRpcDialer {};
         let t = std::thread::Builder::new()
             .name(addr.to_string())

@@ -1,140 +1,5 @@
+use crate::protocol::{AppendEntryReply, AppendEntryReq, VoteReply, VoteReq};
 use crate::{RaftState, ShutdownErrors, State};
-use crate::{
-    protocol::{AppendEntryReply, AppendEntryReq, Packet, Rpc, VoteReply, VoteReq},
-    transport::MakeRpc,
-};
-use crossbeam::channel::{self, Receiver, select};
-use std::{thread, time::Duration};
-
-/// Section: 5.4.1
-/// Raft determines which of two logs is more up-to-date
-/// by comparing the index and term of the last entries in the
-/// logs. If the logs have last entries with different terms, then
-/// the log with the later term is more up-to-date. If the logs
-/// end with the same term, then whichever log is longer is
-/// more up-to-date.
-/// But then what about commited entries fromm previouis leaders?
-/// But we've not even implemented that yet?? So
-///
-///
-/// run_candidate increments the term it's electing for
-pub fn run_candidate(
-    network_rx: &mut Receiver<Packet>,
-    state: &mut State,
-    election_timeout: Duration,
-    peers: Vec<String>,
-    dialer: &(impl MakeRpc + std::marker::Sync),
-) -> RaftState {
-    // clear voted_for and leader and increment term
-    state.voted_for = None;
-    state.current_leader = None;
-    state.term += 1;
-
-    let last_log = state.get_last_log();
-
-    let (votes_tx, votes_rx) = channel::unbounded();
-    if peers.len() == 0 {
-        // TODO: we could make this an opt, but for now, lets enforce it
-        println!(
-            "cannot start Candidate without peers, this is a hard rule at the moment use --peers"
-        );
-        return RaftState::Shutdown(ShutdownErrors::Unexpected);
-    }
-    for peer in &peers {
-        let votes_tx = votes_tx.clone();
-        let vote_req = VoteReq {
-            id: state.id,
-            term: state.term,
-            last_log_index: last_log.index,
-            last_log_term: last_log.term,
-        };
-
-        thread::scope(|s| {
-            s.spawn(|| {
-                let resp = match dialer.dial(peer, Rpc::VoteReq(vote_req)) {
-                    Ok(rpc) => rpc,
-                    Err(err) => {
-                        println!("rpc_dial_err: {:?}", err);
-                        return;
-                    }
-                };
-                let _ = votes_tx.send(resp);
-            });
-        });
-    }
-    let timeout = channel::after(election_timeout);
-    drop(votes_tx);
-
-    let mut recvd_votes = 0;
-    let majority = (peers.len() / 2) + 1;
-
-    loop {
-        select! {
-            recv(network_rx) -> packet => {
-                unimplemented!("unhandled network_recv in run_candidate: {:?}", packet);
-
-            }
-            recv(timeout) -> _signal => {
-                break
-            }
-            recv(votes_rx) -> signal => {
-                let rpc_reply = match signal {
-                    Ok(result) =>  result,
-                    Err(_err) => {
-                        continue;
-                    },
-                };
-
-                match rpc_reply {
-                    Rpc::VoteReply(reply) => {
-                        if reply.granted {
-                            recvd_votes += 1;
-                            println!("granted vote from {:?}, checking majority", reply);
-                            // now check if we've acheived majority
-                            if recvd_votes >= majority {
-                                println!("won election, recvd: {:?} votes against {:?}", recvd_votes, majority);
-                                return RaftState::Leader;
-                            }
-                        } else {
-                            // we don't necessarily need to check the term here because if that node
-                            // is higher, it could be the only possible node whose term in the whole
-                            // cluster is higher, it hasn't reached other nodes, and this node still
-                            // has a chance
-                            println!("denied vote from {:?}", reply);
-                        }
-                    },
-                    _ => {
-                        println!("Candidate:{:?} \trecvd unexpected reply from vote_reply {:?} ", state.id, rpc_reply);
-                    }
-                }
-
-
-            }
-        }
-    }
-
-    println!(
-        "Candidate:{:?} \ttimeout election fired first, checking results",
-        state.id
-    );
-
-    if recvd_votes >= majority {
-        println!(
-            "Candidate:{:?} \twon election, recvd: {:?} votes against {:?} for term: {:?}",
-            state.id, recvd_votes, majority, state.term,
-        );
-        // and then we actually want to update our stats
-        state.voted_for = Some(state.id);
-        state.current_leader = Some(state.id);
-        RaftState::Leader
-    } else {
-        println!(
-            "Candidate:{:?} \tlost election recvd {:?} votes, against {:?} majority for term: {:?}",
-            state.id, recvd_votes, majority, state.term,
-        );
-        RaftState::Follower
-    }
-}
 
 pub fn handle_vote_request(req: VoteReq, state: &mut State) -> (VoteReply, Option<RaftState>) {
     let mut reply = VoteReply {
@@ -143,7 +8,31 @@ pub fn handle_vote_request(req: VoteReq, state: &mut State) -> (VoteReply, Optio
         term: state.term,
     };
     match state.rs {
-        RaftState::Follower => unimplemented!("follower not handling vote_requests"),
+        RaftState::Follower => {
+            if req.term < state.term {
+                println!(
+                    "Follower:{} \tdenying recvd vote_request for current/older term: {:?}, vote_req {:?}",
+                    state.id, state.term, req
+                );
+                return (reply, None);
+            } else if state.term == req.term {
+                // TODO: should this be possible, why should someone vote for current term?
+                println!(
+                    "Follower:{} \trecvd a vote request for current term: {:?}, current_state: {:?}, vote_req: {:?}",
+                    state.id, state.term, state, req
+                );
+                return (reply, Some(RaftState::Shutdown(ShutdownErrors::Unexpected)));
+            } else {
+                state.term = req.term;
+                reply.granted = true;
+                reply.term = state.term;
+                println!(
+                    "Follower:{:?} \trecvd vote_req from higher term: {:?}",
+                    state.id, req
+                );
+                return (reply, None);
+            };
+        }
         RaftState::Candidate => {
             // SAFETY : So there's no explicit mention or I haven't seen it yet, that
             // a Candidate doesn't need to check another candidates log. It simply
@@ -178,8 +67,8 @@ pub fn handle_vote_request(req: VoteReq, state: &mut State) -> (VoteReply, Optio
         }
         _ => {
             println!(
-                "unhanlded case in handle_vote_request: state:{:?}, vote_req:{:?}",
-                state, req
+                "Candidate:{:?} \tunhanlded case in handle_vote_request: state:{:?}, vote_req:{:?}",
+                state.id, state, req
             );
             return (reply, Some(RaftState::Shutdown(ShutdownErrors::Unexpected)));
         }
@@ -237,7 +126,8 @@ pub fn handle_append_entry_request(
             if req.term > state.term {
                 state.term = req.term;
                 state.voted_for = Some(req.id);
-                let reply = check_log_consistency(req, state);
+                let mut reply = check_log_consistency(req, state);
+                reply.reset_timer = true;
                 return (reply, Some(RaftState::Follower));
             }
 

@@ -1,6 +1,6 @@
 use crate::{RaftState, ShutdownErrors, State};
 use crate::{
-    handlers::handle_append_entry_request,
+    handlers::{handle_append_entry_request, handle_vote_request},
     protocol::{Packet, Rpc},
 };
 use crossbeam::channel::{self, Receiver, select};
@@ -24,7 +24,7 @@ pub fn run_follower(
     loop {
         select! {
             recv(network_rx) -> signal => {
-                let envelope = match signal {
+                let packet = match signal {
                     Ok(msg) => msg,
                     Err(err) => {
                         println!("network closed while follower: {:?} current_state: {:?}, ", err, state);
@@ -32,34 +32,48 @@ pub fn run_follower(
                     }
 
                 };
-               if let Rpc::AppendEntryReq(req) = envelope.rpc {
-                   let (reply, transition) = handle_append_entry_request(req, state);
-                   if reply.reset_timer {
-                       println!("resetting timer");
-                       timeout_ch = channel::after(timeout)
-                   }
+                match packet.rpc {
+                    Rpc::AppendEntryReq(req) => {
+                       let (reply, transition) = handle_append_entry_request(req, state);
+                       if reply.reset_timer {
+                           println!("resetting timer");
+                           timeout_ch = channel::after(timeout)
+                       }
 
-                   // ignore send fialures
-                   let _ = envelope.sender.try_send(Rpc::AppendEntryReply(reply));
+                       // ignore send fialures
+                       let _ = packet.sender.try_send(Rpc::AppendEntryReply(reply));
 
-                    // A follower can only move to a Candidate and that is handled within this
-                    // loop, so other children functions should not for a follower
-                   if transition.is_some() {
-                       let next = transition.unwrap();
-                       assert_eq!(next, RaftState::Follower, "Follower -> Shutdown only allowed in run_follower");
-                       assert_eq!(next, RaftState::Candidate, "Follower -> Shutdown only allowed in run_follower");
-                       return next;
-                   }
+                       if transition.is_some() {
+                           let next = transition.unwrap();
+                           assert_eq!(next, RaftState::Follower, "Follower -> Shutdown only allowed in run_follower");
+                           assert_eq!(next, RaftState::Candidate, "Follower -> Shutdown only allowed in run_follower");
+                           return next;
+                       }
+                    }
 
-                   // debug_assert!(
-                   //     transition.is_none(),
-                   //     "follower should never recv a transition state except Shutdown, got: {:?}",
-                   //     transition
-                   //     );
+                    Rpc::VoteReq(req) => {
+                        let (reply, transition) = handle_vote_request(req, state);
+                        if reply.granted {
+                            timeout_ch = channel::after(timeout);
+                        }
+
+                       let _ = packet.sender.try_send(Rpc::VoteReply(reply));
+
+                       if transition.is_some() {
+                           let next = transition.unwrap();
+                           assert_eq!(next, RaftState::Follower, "Follower -> Shutdown only allowed in run_follower");
+                           assert_eq!(next, RaftState::Candidate, "Follower -> Shutdown only allowed in run_follower");
+                           return next;
+                       }
+                    },
+                    _ => {
+                        eprintln!("follower cannot handle {:?} rpc because it's unimplemented\n", packet.rpc);
+                        return RaftState::Shutdown(ShutdownErrors::Unexpected)
+                    },
+                }
+
 
                }
-            }
-
             recv(timeout_ch) -> signal => {
                  match signal {
                     Ok(_) => {},

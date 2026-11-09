@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
+pub mod candidate;
 pub mod follower;
 pub mod handlers;
 pub mod machine;

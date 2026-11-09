@@ -49,7 +49,6 @@ pub struct AppendEntryReq {
     pub info: Option<String>,
 }
 
-
 #[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Clone)]
 pub struct AppendEntryReply {
     /// id of the node sending the reply
@@ -146,8 +145,6 @@ pub struct VoteReply {
     pub granted: bool,
 }
 
-
-
 impl AppendEntryReq {
     pub fn default(id: u64) -> Self {
         Self {
@@ -162,7 +159,6 @@ impl AppendEntryReq {
         }
     }
 }
-
 
 fn default_commit_index() -> u64 {
     0

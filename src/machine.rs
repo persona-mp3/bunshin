@@ -1,5 +1,5 @@
 use crate::{
-    RaftState, State, follower::run_follower, handlers::run_candidate, protocol::Packet,
+    RaftState, State, candidate::run_candidate, follower::run_follower, protocol::Packet,
     transport::MakeRpc, utils,
 };
 #[allow(unused)]

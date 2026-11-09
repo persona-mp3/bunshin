@@ -1,80 +1,6 @@
 use crate::protocol::{AppendEntryReply, AppendEntryReq, VoteReply, VoteReq};
 use crate::{RaftState, ShutdownErrors, State};
 
-pub fn handle_vote_request(req: VoteReq, state: &mut State) -> (VoteReply, Option<RaftState>) {
-    let mut reply = VoteReply {
-        id: state.id,
-        granted: false,
-        term: state.term,
-    };
-    match state.rs {
-        RaftState::Follower => {
-            if req.term < state.term {
-                println!(
-                    "Follower:{} \tdenying recvd vote_request for current/older term: {:?}, vote_req {:?}",
-                    state.id, state.term, req
-                );
-                return (reply, None);
-            } else if state.term == req.term {
-                // TODO: should this be possible, why should someone vote for current term?
-                println!(
-                    "Follower:{} \trecvd a vote request for current term: {:?}, current_state: {:?}, vote_req: {:?}",
-                    state.id, state.term, state, req
-                );
-                return (reply, Some(RaftState::Shutdown(ShutdownErrors::Unexpected)));
-            } else {
-                state.term = req.term;
-                reply.granted = true;
-                reply.term = state.term;
-                println!(
-                    "Follower:{:?} \trecvd vote_req from higher term: {:?}",
-                    state.id, req
-                );
-                return (reply, None);
-            };
-        }
-        RaftState::Candidate => {
-            // SAFETY : So there's no explicit mention or I haven't seen it yet, that
-            // a Candidate doesn't need to check another candidates log. It simply
-            // rejects it's VoteRpc since it's already granted vote to itself.
-            // If the VoteRpc came from a higher term, it should update it's term
-            // and step down
-            // The election restriction was that, before voting a candidate, you need
-            // to check if their logs are up to date, doesn't that apply here? Since
-            // the node is a Candidate, it will only accept higher terms, so in effect
-            // it's voting for a higher term, but what if IT's own logs are more than
-            // that of the sender? We should come back to this.
-            //
-
-            // if term is higher, then drop down to follower
-            if req.term > state.term {
-                state.term = req.term;
-                state.voted_for = Some(req.id);
-                state.current_leader = Some(req.id);
-
-                println!(
-                    "Candidate:{} \trecvd vote request from a higher_term: {:?}, {:?}",
-                    state.id, req.term, req
-                );
-
-                reply.granted = true;
-                reply.term = state.term;
-                return (reply, Some(RaftState::Follower));
-            };
-
-            // ignore similar or lower terms
-            return (reply, None);
-        }
-        _ => {
-            println!(
-                "Candidate:{:?} \tunhanlded case in handle_vote_request: state:{:?}, vote_req:{:?}",
-                state.id, state, req
-            );
-            return (reply, Some(RaftState::Shutdown(ShutdownErrors::Unexpected)));
-        }
-    }
-}
-
 pub fn handle_append_entry_request(
     req: AppendEntryReq,
     state: &mut State,
@@ -221,4 +147,83 @@ pub fn check_log_consistency(req: AppendEntryReq, state: &mut State) -> AppendEn
         }
     }
     reply
+}
+
+pub fn handle_vote_request(req: VoteReq, state: &mut State) -> (VoteReply, Option<RaftState>) {
+    let mut reply = VoteReply {
+        id: state.id,
+        granted: false,
+        term: state.term,
+    };
+    match state.rs {
+        RaftState::Follower => {
+            if req.term < state.term {
+                println!(
+                    "Follower:{} \tdenying recvd vote_request for current/older term: {:?}, vote_req {:?}",
+                    state.id, state.term, req
+                );
+                return (reply, None);
+            } else if state.term == req.term {
+                // TODO: should this be possible, why should someone vote for current term? for
+                // safety lets ignore it
+                println!(
+                    "Follower:{} \trecvd a vote request for current term: {:?}, current_state: {:?}, vote_req: {:?}",
+                    state.id, state.term, state, req
+                );
+                // return (reply, Some(RaftState::Shutdown(ShutdownErrors::Unexpected)));
+                return (reply, None);
+            } else {
+                state.term = req.term;
+                if state.candidate_log_is_up_to_date(req.last_log_index, req.last_log_term) {
+                    reply.granted = true;
+                    reply.term = state.term;
+                    println!(
+                        "Follower:{:?} \trecvd vote_req from higher term: {:?}",
+                        state.id, req
+                    );
+                    return (reply, None);
+                }
+                return (reply, None);
+            };
+        }
+        RaftState::Candidate => {
+            // SAFETY : So there's no explicit mention or I haven't seen it yet, that
+            // a Candidate doesn't need to check another candidates log. It simply
+            // rejects it's VoteRpc since it's already granted vote to itself.
+            // If the VoteRpc came from a higher term, it should update it's term
+            // and step down
+            // The election restriction was that, before voting a candidate, you need
+            // to check if their logs are up to date, doesn't that apply here? Since
+            // the node is a Candidate, it will only accept higher terms, so in effect
+            // it's voting for a higher term, but what if IT's own logs are more than
+            // that of the sender? We should come back to this.
+            //
+
+            // if term is higher, then drop down to follower
+            if req.term > state.term {
+                state.term = req.term;
+                state.voted_for = Some(req.id);
+                state.current_leader = Some(req.id);
+
+                println!(
+                    "Candidate:{} \trecvd vote request from a higher_term: {:?}, {:?}",
+                    state.id, req.term, req
+                );
+
+                reply.granted = true;
+                reply.term = state.term;
+                return (reply, Some(RaftState::Follower));
+            };
+
+            // ignore similar or lower terms
+            return (reply, None);
+        }
+        _ => {
+            println!(
+                "Candidate:{:?} \tunhanlded case in handle_vote_request: state:{:?}, vote_req:{:?}",
+                state.id, state, req
+            );
+            return (reply, Some(RaftState::Shutdown(ShutdownErrors::Unexpected)));
+        }
+    }
 }

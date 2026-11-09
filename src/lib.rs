@@ -218,7 +218,7 @@ impl State {
     /// different terms, then the log with the later term is more up-to-date. If the
     /// logs end with the same term, then whichever log is longer is more up-to-date.
     pub fn candidate_log_is_up_to_date(&self, log_index: usize, log_term: u64) -> bool {
-        if log_index < self.logs.len() {
+        if log_index < self.logs.len() - 1 {
             return false;
         } else {
             log_term >= self.get_last_log().term

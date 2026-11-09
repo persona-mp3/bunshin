@@ -11,7 +11,7 @@ use std::{
 };
 
 /// MakeRpc traits supports connecting to other computers over the network
-pub trait MakeRpc {
+trait MakeRpc {
     /// Call is used to make an rpc request to an underlying client at the address
     /// `addr`. The `reply` is used to pass values back to the callers under the context
     /// of conccurent usage. For example, callers might want to connect clients asynchronously
@@ -22,6 +22,59 @@ pub trait MakeRpc {
     /// to sepcific requests. See [`JsonRpcDialer`] for real implementation
     fn dial(&self, addr: &str, req: Rpc) -> Result<Rpc>;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+pub type Transport = fn(addr: &str, req: Rpc) -> Result<Rpc>;
+
+pub fn json_transport_dialer(addr: &str, req: Rpc) -> Result<Rpc> {
+    let conn =
+        TcpStream::connect(addr).with_context(|| format!("failed to connect to {:?}", addr))?;
+
+    println!("dialed {}", addr);
+    let mut writer = BufWriter::new(
+        conn.try_clone()
+            .with_context(|| format!("failed to clone connection for writing"))?,
+    );
+
+    let reader = BufReader::new(conn);
+    let mut json_reader = serde_json::Deserializer::from_reader(reader).into_iter();
+    let response = send_and_recv_json(&req, &mut writer, &mut json_reader);
+    response
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /// JsonRpcDialer connects with clients over TCP and uses [`utils::send_and_recv_json`]
 /// to send requests and parse responses. When the response is received, it uses
@@ -46,7 +99,7 @@ impl MakeRpc for JsonRpcDialer {
     }
 }
 
-pub struct MockAppendEntryDialer {}
+struct MockAppendEntryDialer {}
 
 impl MakeRpc for MockAppendEntryDialer {
     #![allow(unused)]

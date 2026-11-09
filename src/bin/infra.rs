@@ -196,3 +196,31 @@ fn run_bunshin(addrs: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 
     save_instances(&instances)
 }
+
+mod tests {
+    #[allow(unused)]
+    use super::*;
+
+    #[test]
+    fn peers_are_mapped_valid() {
+        let peers = vec![
+            "localhost:9000".to_string(),
+            "localhost:9001".to_string(),
+            "localhost:9002".to_string(),
+        ];
+
+        let map = map_peers(&peers);
+        assert_eq!(
+            *map.get("localhost:9000").unwrap(),
+            vec!["localhost:9001".to_string(), "localhost:9002".to_string()]
+        );
+        assert_eq!(
+            *map.get("localhost:9001").unwrap(),
+            vec!["localhost:9000".to_string(), "localhost:9002".to_string()]
+        );
+        assert_eq!(
+            *map.get("localhost:9002").unwrap(),
+            vec!["localhost:9000".to_string(), "localhost:9001".to_string()]
+        );
+    }
+}

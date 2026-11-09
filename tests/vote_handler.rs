@@ -1,10 +1,6 @@
 mod test_utils;
 
-use bunshin::{
-    Command, LogEntry, State,
-    handlers::handle_vote_request,
-    protocol::{VoteReply, VoteReq},
-};
+use bunshin::{Command, LogEntry, State, handlers::handle_vote_request, protocol::VoteReq};
 use test_utils::*;
 
 #[test]

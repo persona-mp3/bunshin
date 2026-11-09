@@ -1,7 +1,6 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Parser;
 use crossbeam::channel::{self, Receiver, Sender};
-use std::error::Error;
 use std::io::{BufReader, BufWriter, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread;
@@ -11,7 +10,8 @@ use bunshin::{
     State,
     machine::Machine,
     protocol::{Packet, Rpc},
-    transport::JsonRpcDialer,
+    transport::json_transport_dialer,
+    utils::parse_peers,
 };
 
 #[derive(Parser, Debug, Clone)]
@@ -46,8 +46,8 @@ fn main() -> Result<()> {
     std::thread::spawn(move || {
         println!("state-machine started");
         let mut state = State::new(args.node_id);
-        let transport = JsonRpcDialer {};
-        machine.run(&mut state, &mut network_rx, &transport);
+        // let transport = json_transport_dialer {};
+        machine.run(&mut state, &mut network_rx, json_transport_dialer);
         println!("state-machine has being shutdown");
         if let Err(err) = done_tx.send(()) {
             eprintln!("failed to shutdown main server: {}", err)
@@ -116,46 +116,10 @@ fn handle_conn(
                 return Err(format!("INTERNAL STATE IS DOWN. Failed to send: {}", err).into());
             }
         };
-        let rpc_reply = recv.recv_timeout(Duration::from_secs(5)).unwrap();
+        let rpc_reply = recv.recv_timeout(Duration::from_secs(10)).unwrap();
         serde_json::to_writer(&mut writer, &rpc_reply).unwrap();
         writer.write_all(b"\n")?;
         writer.flush()?;
     }
     Ok(())
-}
-
-/// Validates all peer addresses as valid IP addresses and the listen address
-/// of this node is not included as a peer
-fn parse_peers(
-    listen_addr: &String,
-    raw_peer: Option<Vec<String>>,
-) -> Result<Vec<String>, Box<dyn Error>> {
-    use std::net::ToSocketAddrs;
-    let peers = if let Some(peers) = raw_peer {
-        peers
-    } else {
-        return Ok(Vec::new());
-    };
-
-    if peers.is_empty() {
-        return Ok(peers);
-    }
-
-    let mut parsed_addrs = vec![];
-
-    for (idx, port) in peers.as_slice().iter().enumerate() {
-        let addr = format!("localhost:{}", port);
-        if addr == listen_addr.as_str() {
-            let msg = format!("cannot use self.addr as a peer at index: {}", idx);
-            return Err(msg.into());
-        }
-        addr.as_str()
-            .to_socket_addrs()?
-            .next()
-            .context("invalid address provided for peer")?;
-
-        parsed_addrs.push(addr)
-    }
-
-    Ok(parsed_addrs)
 }

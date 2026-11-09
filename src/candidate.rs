@@ -2,7 +2,7 @@ use crate::{RaftState, ShutdownErrors, State};
 use crate::{
     handlers::{handle_append_entry_request, handle_vote_request},
     protocol::{Packet, Rpc, VoteReq},
-    transport::MakeRpc,
+    transport::Transport,
 };
 use crossbeam::channel::{self, Receiver, select};
 use std::{thread, time::Duration};
@@ -24,12 +24,13 @@ pub fn run_candidate(
     state: &mut State,
     election_timeout: Duration,
     peers: Vec<String>,
-    dialer: &(impl MakeRpc + std::marker::Sync),
+    dialer: Transport,
 ) -> RaftState {
     // clear voted_for and leader and increment term
     state.voted_for = None;
     state.current_leader = None;
     state.term += 1;
+    // println!("[candidtate:{}] peers to connect: {:?}", state.id, peers);
 
     let last_log = state.get_last_log();
 
@@ -41,7 +42,10 @@ pub fn run_candidate(
         );
         return RaftState::Shutdown(ShutdownErrors::Unexpected);
     }
-    for peer in &peers {
+    // thread::scope(|s| {
+    // });
+
+    for peer in peers.clone() {
         let votes_tx = votes_tx.clone();
         let vote_req = VoteReq {
             id: state.id,
@@ -50,17 +54,15 @@ pub fn run_candidate(
             last_log_term: last_log.term,
         };
 
-        thread::scope(|s| {
-            s.spawn(|| {
-                let resp = match dialer.dial(peer, Rpc::VoteReq(vote_req)) {
-                    Ok(rpc) => rpc,
-                    Err(err) => {
-                        println!("rpc_dial_err: {:?}", err);
-                        return;
-                    }
-                };
-                let _ = votes_tx.send(resp);
-            });
+        thread::spawn(move || {
+            let resp = match dialer(&peer, Rpc::VoteReq(vote_req)) {
+                Ok(rpc) => rpc,
+                Err(err) => {
+                    println!("rpc_dial_err: {:?}", err);
+                    return;
+                }
+            };
+            let _ = votes_tx.send(resp);
         });
     }
     let timeout = channel::after(election_timeout);
@@ -81,11 +83,16 @@ pub fn run_candidate(
 
                 };
 
+                println!("candidate:{} new packet: {:?}", state.id, packet.rpc);
                 match packet.rpc {
                     Rpc::AppendEntryReq(req) => {
                        let (reply, transition) = handle_append_entry_request(req, state);
 
-                       let _ = packet.sender.try_send(Rpc::AppendEntryReply(reply));
+                       let r = packet.sender.try_send(Rpc::AppendEntryReply(reply));
+                       match r {
+                           Ok(_) => {},
+                           Err(err) => println!("candidate{} | failed to send to network_layer:: {err}", state.id),
+                       };
 
                        if transition.is_some() {
                            let next = transition.unwrap();

@@ -1,0 +1,32 @@
+[11:56] devv::bunshin (feat/candidate-refactor) | ./infra --nodes 3000,3001,3002 -- true
+./bunshin CommandArgs { inner: ["--node-id", "1", "--port", "3002", "--peers", "3000,3001"] }
+./bunshin CommandArgs { inner: ["--node-id", "2", "--port", "3001", "--peers", "3000,3002"] }
+./bunshin CommandArgs { inner: ["--node-id", "3", "--port", "3000", "--peers", "3001,3002"] }
+state-machine started
+state-machine started
+state-machine started
+[11:56] devv::bunshin (feat/candidate-refactor) | transitioning from Follower -> Candidate
+transitioning from Follower -> Candidate
+transitioning from Follower -> Candidate
+dialed localhost:3001
+dialed localhost:3000
+dialed localhost:3000
+
+thread '<unnamed>' (439606) panicked at src/main.rs:119:67:
+called `Result::unwrap()` on an `Err` value: Timeout
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread '<unnamed>' (439605) panicked at src/main.rs:119:67:
+called `Result::unwrap()` on an `Err` value: Timeout
+rpc_dial_err: target node closed the connection
+rpc_dial_err: target node closed the connection
+
+thread '<unnamed>' (439607) panicked at src/main.rs:119:67:
+called `Result::unwrap()` on an `Err` value: Timeout
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+rpc_dial_err: target node closed the connection
+dialed localhost:3002
+dialed localhost:3001
+dialed localhost:3002
+
+[11:56] devv::bunshin (feat/candidate-refactor) | 

@@ -1,6 +1,6 @@
 use crate::{
     RaftState, State, candidate::run_candidate, follower::run_follower, protocol::Packet,
-    transport::MakeRpc, utils,
+    transport::Transport, utils,
 };
 #[allow(unused)]
 use crossbeam::channel::{self, Receiver};
@@ -22,7 +22,7 @@ impl Machine {
         &mut self,
         mut state: &mut State,
         network_rx: &mut Receiver<Packet>,
-        transport: &(impl MakeRpc + std::marker::Sync),
+        transport: Transport,
     ) {
         let mut next_state = RaftState::Follower;
         // TODO: There's a better way to do this

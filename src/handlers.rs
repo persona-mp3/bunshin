@@ -83,6 +83,22 @@ pub fn handle_append_entry_request(
     }
 }
 
+/// check_log_consistency takes the `previous_log_index` and `previous_log_term`
+/// from a request and checks if it has any any log at that index. If it doesn't
+/// have any log at that index, it rejects the request. But it also provides a
+/// hint to the leader via the [`AppendEntryReply.conflict_index`] which is the
+/// index of last log that it has. If it does have an entry at there and the
+/// terms do not match, the [`AppendEntryReply.conflict_term`] is updated too with
+/// such term.
+///
+/// If the check above is done succesfully, it then checks if the [`AppendEntry.enty`]
+/// has a value. If it does a check before it appends this new entry to it's log.
+/// If a log already exists at that index, it truncates it's logs from that starting point
+/// before appending to it, making sure that it's logs are still consitent with that
+/// of the Leader's
+///
+/// It also sets the [`AppendEntryReply.reset_timer`] field to true and [`State.term`] to
+/// match the current term of the request
 pub fn check_log_consistency(req: AppendEntryReq, state: &mut State) -> AppendEntryReply {
     let mut reply = AppendEntryReply::default(state.id);
     reply.reset_timer = true;

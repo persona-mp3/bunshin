@@ -1,66 +1,5 @@
-use crate::protocol::{AppendEntryReply, AppendEntryReq, Packet, Rpc};
-use crate::{RaftState, State};
-use crossbeam::channel::{self, Receiver, select};
-use std::time::Duration;
-
-/// run_follower runs a single follower loop,listens over a network and handles incoming
-/// network connections via `network_rx`. It returns with a state of [RaftState::Candidate]
-/// when it's the given `timeout` has elpased or [RaftState::Shutdown] when the network
-/// channel has being dropped.
-///
-/// It panics when it receives a state to transition to from child functions
-pub fn run_follower(
-    network_rx: &mut Receiver<Packet>,
-    state: &mut State,
-    timeout: Duration,
-) -> RaftState {
-    let mut timeout_ch = channel::after(timeout);
-    loop {
-        select! {
-            recv(network_rx) -> signal => {
-                let envelope = match signal {
-                    Ok(msg) => msg,
-                    Err(err) => {
-                        println!("network channel has being dropped, shutting down: {}",  err);
-                        return RaftState::Shutdown;
-                    }
-
-                };
-               if let Rpc::AppendEntryReq(req) = envelope.rpc {
-                   let (reply, transition) = handle_append_entry_request(req, state);
-                   if reply.reset_timer {
-                       println!("resetting timer");
-                       timeout_ch = channel::after(timeout)
-                   }
-
-                   // ignore send fialures
-                   let _ = envelope.sender.try_send(Rpc::AppendEntryReply(reply));
-
-                   debug_assert!(
-                       transition.is_none(),
-                       // A follower can only move to a Candidate and that is handled within this
-                       // loop
-                       "follower should never recv a transition state except Shutdown, got: {:?}",
-                       transition
-                       );
-
-               }
-            }
-
-            recv(timeout_ch) -> signal => {
-                println!("timeout has elapsed, moving to candidate");
-                 match signal {
-                    Ok(_) => {},
-                    Err(err) => {
-                        println!("timer channel has being dropped, shutting down: {}",  err);
-                        return RaftState::Shutdown;
-                    }
-                }
-                return RaftState::Candidate;
-            }
-        }
-    }
-}
+use crate::protocol::{AppendEntryReply, AppendEntryReq, VoteReply, VoteReq};
+use crate::{RaftState, ShutdownErrors, State};
 
 pub fn handle_append_entry_request(
     req: AppendEntryReq,
@@ -113,7 +52,8 @@ pub fn handle_append_entry_request(
             if req.term > state.term {
                 state.term = req.term;
                 state.voted_for = Some(req.id);
-                let reply = check_log_consistency(req, state);
+                let mut reply = check_log_consistency(req, state);
+                reply.reset_timer = true;
                 return (reply, Some(RaftState::Follower));
             }
 
@@ -130,10 +70,17 @@ pub fn handle_append_entry_request(
                 None,
             );
         }
-        _ => {}
+        _ => {
+            println!(
+                "unahndled case in handle_append_entry_request: state: {:?}, request: {:?}",
+                state, req
+            );
+            return (
+                AppendEntryReply::default(state.id),
+                Some(RaftState::Shutdown(ShutdownErrors::Unexpected)),
+            );
+        }
     }
-
-    panic!("unhandled case")
 }
 
 pub fn check_log_consistency(req: AppendEntryReq, state: &mut State) -> AppendEntryReply {
@@ -200,4 +147,83 @@ pub fn check_log_consistency(req: AppendEntryReq, state: &mut State) -> AppendEn
         }
     }
     reply
+}
+
+pub fn handle_vote_request(req: VoteReq, state: &mut State) -> (VoteReply, Option<RaftState>) {
+    let mut reply = VoteReply {
+        id: state.id,
+        granted: false,
+        term: state.term,
+    };
+    match state.rs {
+        RaftState::Follower => {
+            if req.term < state.term {
+                println!(
+                    "Follower:{} \tdenying recvd vote_request for current/older term: {:?}, vote_req {:?}",
+                    state.id, state.term, req
+                );
+                return (reply, None);
+            } else if state.term == req.term {
+                // TODO: should this be possible, why should someone vote for current term? for
+                // safety lets ignore it
+                println!(
+                    "Follower:{} \trecvd a vote request for current term: {:?}, current_state: {:?}, vote_req: {:?}",
+                    state.id, state.term, state, req
+                );
+                // return (reply, Some(RaftState::Shutdown(ShutdownErrors::Unexpected)));
+                return (reply, None);
+            } else {
+                state.term = req.term;
+                if state.candidate_log_is_up_to_date(req.last_log_index, req.last_log_term) {
+                    reply.granted = true;
+                    reply.term = state.term;
+                    println!(
+                        "Follower:{:?} \trecvd vote_req from higher term: {:?}",
+                        state.id, req
+                    );
+                    return (reply, None);
+                }
+                return (reply, None);
+            };
+        }
+        RaftState::Candidate => {
+            // SAFETY : So there's no explicit mention or I haven't seen it yet, that
+            // a Candidate doesn't need to check another candidates log. It simply
+            // rejects it's VoteRpc since it's already granted vote to itself.
+            // If the VoteRpc came from a higher term, it should update it's term
+            // and step down
+            // The election restriction was that, before voting a candidate, you need
+            // to check if their logs are up to date, doesn't that apply here? Since
+            // the node is a Candidate, it will only accept higher terms, so in effect
+            // it's voting for a higher term, but what if IT's own logs are more than
+            // that of the sender? We should come back to this.
+            //
+
+            // if term is higher, then drop down to follower
+            if req.term > state.term {
+                state.term = req.term;
+                state.voted_for = Some(req.id);
+                state.current_leader = Some(req.id);
+
+                println!(
+                    "Candidate:{} \trecvd vote request from a higher_term: {:?}, {:?}",
+                    state.id, req.term, req
+                );
+
+                reply.granted = true;
+                reply.term = state.term;
+                return (reply, Some(RaftState::Follower));
+            };
+
+            // ignore similar or lower terms
+            return (reply, None);
+        }
+        _ => {
+            println!(
+                "Candidate:{:?} \tunhanlded case in handle_vote_request: state:{:?}, vote_req:{:?}",
+                state.id, state, req
+            );
+            return (reply, Some(RaftState::Shutdown(ShutdownErrors::Unexpected)));
+        }
+    }
 }

@@ -68,7 +68,7 @@ pub fn run_candidate(
     let timeout = channel::after(election_timeout);
     drop(votes_tx);
 
-    let mut recvd_votes = 0;
+    let mut recvd_votes = 1;
     let majority = (peers.len() / 2) + 1;
 
     loop {

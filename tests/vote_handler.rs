@@ -97,7 +97,6 @@ fn test_vote_handler_rejects_lower_or_similar_term_votes() {
     };
 
     let mut state = State::new(TEST_NODE_ID);
-    // make followers log updated
 
     let (reply, transition) = handle_vote_request(vote_req.clone(), &mut state);
     assert_eq!(

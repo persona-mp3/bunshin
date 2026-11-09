@@ -1,7 +1,0 @@
-if theres a loop that listens on an unbuffered channel, but breaks out of that 
-loop, but someone still sends, that send goes through to the channel, as far as
-it's not GC'd or dropped right? So it's getting new things
-
-But if another loop then listens  to that channel again, shouldn't it recv all 
-past values while it listens? unless those values get dropped? but no one has recvd 
-them in that case. Do you get what I'm saying??

@@ -31,7 +31,7 @@ pub fn json_transport_dialer(addr: &str, req: Rpc) -> Result<Rpc> {
 
     let reader = BufReader::new(conn);
     let mut json_reader = serde_json::Deserializer::from_reader(reader).into_iter();
-    
+
     send_and_recv_json(&req, &mut writer, &mut json_reader)
 }
 
@@ -53,7 +53,7 @@ impl MakeRpc for JsonRpcDialer {
 
         let reader = BufReader::new(conn);
         let mut json_reader = serde_json::Deserializer::from_reader(reader).into_iter();
-        
+
         send_and_recv_json(&req, &mut writer, &mut json_reader)
     }
 }

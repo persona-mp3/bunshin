@@ -84,19 +84,19 @@ pub fn handle_append_entry_request(
 }
 
 /// check_log_consistency takes the `previous_log_index` and `previous_log_term`
-/// from a request and checks if it has any any log at that index. 
-/// - If it doesn't have any log at that index, it rejects the request. 
-///   But it also provides a hint to the leader via the [`AppendEntryReply.conflict_index`] 
+/// from a request and checks if it has any any log at that index.
+/// - If it doesn't have any log at that index, it rejects the request.
+///   But it also provides a hint to the leader via the [`AppendEntryReply.conflict_index`]
 ///   which, the index of last log that it has.
 ///
-/// - If it does have an entry at that index and the terms do not match, the 
+/// - If it does have an entry at that index and the terms do not match, the
 ///   [`AppendEntryReply.conflict_term`] is updated with that log's term.
 ///
-/// If the above checks have are succesfully, it then checks if the request came 
+/// If the above checks have are succesfully, it then checks if the request came
 /// with a new entry [`AppendEntryReq.entry`]. If it doesn't it's considered a heartbeat
 ///
-/// If it does contain a new entry, it checks before inserting into it's own 
-/// logs that nothing there exists. If there exists one and it's different from 
+/// If it does contain a new entry, it checks before inserting into it's own
+/// logs that nothing there exists. If there exists one and it's different from
 /// the request's, the log is truncated before appending the new one. If the logs
 /// are different, it simply ignores it
 ///
@@ -181,16 +181,16 @@ pub fn handle_vote_request(req: VoteReq, state: &mut State) -> (VoteReply, Optio
                     "Follower:{} \tdenying recvd vote_request for current/older term: {:?}, vote_req {:?}",
                     state.id, state.term, req
                 );
-                return (reply, None);
+                (reply, None)
             } else if state.term == req.term {
-                // this is possible as a node might have been partitioned from the cluster 
+                // this is possible as a node might have been partitioned from the cluster
                 // and hasn't seen new term changes. for example, it can send requests
                 // but cannot receive responses
                 println!(
                     "Follower:{} \trecvd a vote request for current term: {:?}, current_state: {:?}, vote_req: {:?}",
                     state.id, state.term, state, req
                 );
-                return (reply, None);
+                (reply, None)
             } else {
                 state.term = req.term;
                 if state.candidate_log_is_up_to_date(req.last_log_index, req.last_log_term) {

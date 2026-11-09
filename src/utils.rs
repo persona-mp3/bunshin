@@ -68,4 +68,3 @@ pub fn parse_peers(
 
     Ok(parsed_addrs)
 }
-

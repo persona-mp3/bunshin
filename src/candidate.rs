@@ -5,7 +5,7 @@ use crate::{
     transport::Transport,
 };
 use crossbeam::channel::{self, Receiver, select};
-use std::{thread, time::Duration};
+use std::{sync::Arc, thread, time::Duration};
 
 /// Section: 5.4.1
 /// Raft determines which of two logs is more up-to-date
@@ -19,12 +19,12 @@ use std::{thread, time::Duration};
 ///
 ///
 /// run_candidate increments the term it's electing for
-pub fn run_candidate(
+pub fn run_candidate<T: Transport + 'static>(
     network_rx: &mut Receiver<Packet>,
     state: &mut State,
     election_timeout: Duration,
     peers: Vec<String>,
-    dialer: Transport,
+    dialer: Arc<T>,
 ) -> RaftState {
     // clear voted_for and leader and increment term
     state.voted_for = None;
@@ -42,6 +42,7 @@ pub fn run_candidate(
         return RaftState::Shutdown(ShutdownErrors::Unexpected);
     }
 
+    let dialer = Arc::new(dialer);
     for peer in peers.clone() {
         let votes_tx = votes_tx.clone();
         let vote_req = VoteReq {
@@ -51,8 +52,9 @@ pub fn run_candidate(
             last_log_term: last_log.term,
         };
 
+        let d = Arc::clone(&dialer);
         thread::spawn(move || {
-            let resp = match dialer(&peer, Rpc::VoteReq(vote_req)) {
+            let resp = match d.connect(&peer, Rpc::VoteReq(vote_req)) {
                 Ok(rpc) => rpc,
                 Err(err) => {
                     println!("rpc_dial_err: {:?}", err);

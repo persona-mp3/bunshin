@@ -1,0 +1,63 @@
+#![allow(unused)]
+use crate::protocol::{Rpc, VoteReply};
+use anyhow::Result;
+use std::collections::HashMap;
+
+pub trait Transport: Send + Sync {
+    fn connect(&self, addr: String, r: Rpc) -> Result<Rpc>;
+}
+
+struct TcpTransport;
+
+impl Transport for TcpTransport {
+    fn connect(&self, addr: String, req: Rpc) -> Result<Rpc> {
+        let reply = Rpc::VoteReply(VoteReply {
+            id: 0,
+            term: 0,
+            granted: false,
+        });
+        Ok(reply)
+    }
+}
+
+#[derive(Default)]
+struct SimTransport<'a, T> {
+    reqs: HashMap<String, Vec<String>>,
+    nn: &'a T,
+}
+
+impl Transport for SimTransport {
+    fn connect(&self, addr: String, req: Rpc) -> Result<Rpc> {
+        let reply = Rpc::VoteReply(VoteReply {
+            id: 0,
+            term: 0,
+            granted: false,
+        });
+        Ok(reply)
+    }
+}
+
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+fn oo<T: Transport + 'static>(t: T, r: Rpc) {
+    let d = Arc::new(t);
+    for addr in vec!["".to_string(), "".to_string()] {
+        let addr = addr.clone();
+        let o = Arc::clone(&d);
+        let req = r.clone();
+
+        thread::spawn(move || o.connect(addr, req));
+    }
+}
+
+fn uu() {
+    let s = SimTransport::default();
+    let r = Rpc::VoteReply(VoteReply {
+        id: 0,
+        term: 0,
+        granted: false,
+    });
+
+    oo(s, r);
+}

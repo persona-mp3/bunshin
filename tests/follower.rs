@@ -1,7 +1,8 @@
 use bunshin::{LogEntry, RaftState, ShutdownErrors, State, follower::run_follower, protocol::*};
-use crossbeam::channel;
+use crossbeam::channel::{self, Receiver};
 use std::{
     sync::{Arc, Mutex},
+    thread,
     time::Duration,
 };
 mod test_utils;

@@ -5,7 +5,7 @@ use crate::{
     transport::Transport,
 };
 use crossbeam::channel::{self, Receiver, select};
-use std::{thread, time::Duration};
+use std::{sync::Arc, thread, time::Duration};
 
 /// Section: 5.4.1
 /// Raft determines which of two logs is more up-to-date
@@ -19,15 +19,15 @@ use std::{thread, time::Duration};
 ///
 ///
 /// run_candidate increments the term it's electing for
-pub fn run_candidate(
+pub fn run_candidate<T: Transport + 'static>(
     network_rx: &mut Receiver<Packet>,
     state: &mut State,
     election_timeout: Duration,
     peers: Vec<String>,
-    dialer: Transport,
+    dialer: Arc<T>,
 ) -> RaftState {
     // clear voted_for and leader and increment term
-    state.voted_for = None;
+    state.voted_for = Some(state.id);
     state.current_leader = None;
     state.term += 1;
 
@@ -42,6 +42,7 @@ pub fn run_candidate(
         return RaftState::Shutdown(ShutdownErrors::Unexpected);
     }
 
+    let dialer = Arc::new(dialer);
     for peer in peers.clone() {
         let votes_tx = votes_tx.clone();
         let vote_req = VoteReq {
@@ -51,8 +52,9 @@ pub fn run_candidate(
             last_log_term: last_log.term,
         };
 
+        let d = Arc::clone(&dialer);
         thread::spawn(move || {
-            let resp = match dialer(&peer, Rpc::VoteReq(vote_req)) {
+            let resp = match d.connect(&peer, Rpc::VoteReq(vote_req)) {
                 Ok(rpc) => rpc,
                 Err(err) => {
                     println!("rpc_dial_err: {:?}", err);
@@ -65,8 +67,9 @@ pub fn run_candidate(
     let timeout = channel::after(election_timeout);
     drop(votes_tx);
 
+    let total_nodes = peers.len() + 1; // peers plus this candidate
+    let majority = (total_nodes / 2) + 1;
     let mut recvd_votes = 1;
-    let majority = (peers.len() / 2) + 1;
 
     loop {
         select! {
@@ -83,6 +86,7 @@ pub fn run_candidate(
                 println!("candidate:{} new packet: {:?}", state.id, packet.rpc);
                 match packet.rpc {
                     Rpc::AppendEntryReq(req) => {
+                       let valid_drop = req.term >= state.term;
                        let (reply, transition) = handle_append_entry_request(req, state);
 
                        let r = packet.sender.try_send(Rpc::AppendEntryReply(reply));
@@ -93,6 +97,7 @@ pub fn run_candidate(
 
                        if transition.is_some() {
                            let next = transition.unwrap();
+                           assert_eq!(valid_drop, true, "Candidate must drop to Follower when AppendEntryRequest is similar or higher to term");
                            assert_eq!(next, RaftState::Follower, "Candidate must only recevive Follower state from handler");
                            return RaftState::Follower;
                        }
@@ -135,6 +140,8 @@ pub fn run_candidate(
                             // now check if we've acheived majority
                             if recvd_votes >= majority {
                                 println!("won election, recvd: {:?} votes against {:?}", recvd_votes, majority);
+                                state.voted_for = Some(state.id);
+                                state.current_leader = Some(state.id);
                                 return RaftState::Leader;
                             }
                         } else {

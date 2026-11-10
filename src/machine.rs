@@ -3,7 +3,11 @@ use crate::{
     transport::Transport, utils,
 };
 use crossbeam::channel::Receiver;
-use std::time::Duration;
+#[allow(unused)]
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 #[derive(Debug)]
 pub struct Machine {
@@ -18,13 +22,14 @@ impl Machine {
         Machine { id, peers, timeout }
     }
 
-    pub fn run(
+    pub fn run<T: Transport + 'static>(
         &mut self,
         state: &mut State,
         network_rx: &mut Receiver<Packet>,
-        transport: Transport,
+        transport: T,
     ) {
         let mut next_state = RaftState::Follower;
+        let dialer = Arc::new(transport);
         // TODO: There's a better way to do this
         loop {
             next_state = match next_state {
@@ -48,8 +53,9 @@ impl Machine {
 
                 RaftState::Candidate => {
                     let timeout = utils::random_timeout();
+                    let t = Arc::clone(&dialer);
                     let next_state =
-                        run_candidate(network_rx, state, timeout, self.peers.clone(), transport);
+                        run_candidate(network_rx, state, timeout, self.peers.clone(), t);
                     state.rs = next_state.clone();
                     assert_ne!(
                         next_state,

@@ -10,7 +10,7 @@ use bunshin::{
     State,
     machine::Machine,
     protocol::{Packet, Rpc},
-    transport::json_transport_dialer,
+    transport::TcpTransport,
     utils::parse_peers,
 };
 
@@ -47,7 +47,7 @@ fn main() -> Result<()> {
         println!("state-machine started");
         let mut state = State::new(args.node_id);
         // let transport = json_transport_dialer {};
-        machine.run(&mut state, &mut network_rx, json_transport_dialer);
+        machine.run(&mut state, &mut network_rx, TcpTransport);
         println!("state-machine has being shutdown");
         if let Err(err) = done_tx.send(()) {
             eprintln!("failed to shutdown main server: {}", err)

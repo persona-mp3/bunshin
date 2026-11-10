@@ -1,3 +1,10 @@
+//! Transport provides an interface for making external rpc calls by the state machine
+//! At the moment, this has be tailored the [Candidate] state. Main reason for
+//! abstracting it into a trait is for testablitly as we don't actual tests
+//! making arbitrary connections.
+//!
+//! The tansport implementations available by default are [TcpTransport] which creates Tcp
+//! connections and uses json and [SimTransport] which stores responses locally within itself
 use crate::{protocol::Rpc, utils::send_and_recv_json};
 
 use anyhow::{Context, Result};
@@ -10,10 +17,13 @@ use std::{
 
 use std::sync::Mutex;
 
+/// Transport trait for making network rpc calls
 pub trait Transport: Send + Sync {
     fn connect(&self, addr: &str, req: Rpc) -> Result<Rpc>;
 }
 
+/// TcpTransport connects to the addr over tcp. It uses `serde_json` for parsing
+/// and marshalling the data and response
 pub struct TcpTransport;
 
 impl Transport for TcpTransport {
@@ -21,7 +31,7 @@ impl Transport for TcpTransport {
         let conn =
             TcpStream::connect(addr).with_context(|| format!("failed to connect to {:?}", addr))?;
 
-        println!("dialed {}", addr);
+        println!("transport: connected to {}", addr);
         let mut writer = BufWriter::new(
             conn.try_clone()
                 .with_context(|| "failed to clone connection for writing".to_string())?,
@@ -40,6 +50,7 @@ pub struct SimTransport {
 }
 
 impl Transport for SimTransport {
+    /// connect panics when a call was made to an unregistered address
     fn connect(&self, addr: &str, _req: Rpc) -> Result<Rpc> {
         let conn = self.conn_res.lock().unwrap();
         let response = conn

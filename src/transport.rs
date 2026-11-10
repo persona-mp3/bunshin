@@ -44,6 +44,10 @@ impl Transport for TcpTransport {
     }
 }
 
+/// This transport is used for testing as it does not make external network
+/// requests, but instead holds a map of the address the node wants to contact,
+/// and the response it should send. This is also safe for concurrent use as
+/// the data is wrapped behind a mutex
 #[derive(Default)]
 pub struct SimTransport {
     pub conn_res: Mutex<HashMap<String, Rpc>>,

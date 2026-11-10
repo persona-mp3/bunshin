@@ -3,7 +3,7 @@ use anyhow::{Context, Result};
 use bunshin::{
     LogEntry, RaftState, ShutdownErrors, State,
     candidate::run_candidate,
-    protocol::{Packet, Rpc, VoteReply},
+    protocol::{AppendEntryReply, AppendEntryReq, Packet, Rpc, VoteReply},
     transport::SimTransport,
 };
 
@@ -24,6 +24,7 @@ fn test_candidate_updates_term_for_election() {
     let lower_term = 3;
     let election_term = 4;
     let mut state = State::new(TEST_NODE_ID);
+    state.rs = RaftState::Candidate;
     state.term = lower_term;
 
     let sim_transport = Arc::new(SimTransport::default());
@@ -45,6 +46,7 @@ fn test_candidate_updates_term_for_election() {
 fn test_candidate_transitions_to_follower_with_majority_votes() {
     let mut state = State::new(TEST_NODE_ID);
     let mut sim_transport = SimTransport::default();
+    state.rs = RaftState::Candidate;
 
     // arbitrary higher term the node should parade for a 10th election
     let election_term = 10;
@@ -86,6 +88,7 @@ fn test_candidate_transitions_to_follower_with_majority_votes() {
 #[test]
 fn test_candidate_looses_election_without_majority() {
     let mut state = State::new(TEST_NODE_ID);
+    state.rs = RaftState::Candidate;
     let mut sim_transport = SimTransport::default();
 
     // arbitrary higher term the node should parade for a 10th election
@@ -124,4 +127,59 @@ fn test_candidate_looses_election_without_majority() {
     assert_eq!(state.current_leader, None);
     assert_eq!(state.voted_for, Some(TEST_NODE_ID));
     assert_eq!(transition, RaftState::Shutdown(ShutdownErrors::NetworkDrop));
+}
+
+#[test]
+fn test_candidate_steps_down_from_append_entry_with_higher_term() {
+    let higher_term = 6;
+
+    let mut state = State::new(TEST_NODE_ID);
+    state.rs = RaftState::Candidate;
+
+    let mut state = Arc::new(Mutex::new(state));
+
+    let sim_transport = Arc::new(SimTransport::default());
+
+    let (network_tx, mut network_rx) = channel::unbounded::<Packet>();
+
+    let c = Arc::clone(&state);
+    thread::spawn(move || {
+        let mut state = c.lock().unwrap();
+        let transition = run_candidate(
+            &mut network_rx,
+            &mut state,
+            Duration::from_secs(TIMEOUT_SECS),
+            vec!["".to_string()],
+            sim_transport,
+        );
+    });
+
+    let mut higher_append_entry = AppendEntryReq::default(EXTERNAL_NODE_ID);
+    higher_append_entry.term = higher_term;
+    higher_append_entry.info = Some("from test_node".to_string());
+
+    let (packet_tx, packet_rx) = channel::unbounded::<Rpc>();
+
+    let packet = Packet {
+        rpc: Rpc::AppendEntryReq(higher_append_entry),
+        sender: packet_tx,
+    };
+
+    network_tx
+        .send_timeout(packet, Duration::from_secs(1))
+        .expect("failed to send packet to run_candidate");
+
+    let res = packet_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("failed to recv packet from run_candidate");
+
+    drop(network_tx);
+    let state = state.lock().unwrap();
+    assert_eq!(
+        state.current_leader,
+        Some(EXTERNAL_NODE_ID),
+        "candidate node should update it's leader from the higher_append_entry request"
+    );
+    assert_eq!(state.term, higher_term);
+    assert_eq!(state.voted_for, Some(EXTERNAL_NODE_ID));
 }

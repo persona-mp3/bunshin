@@ -52,6 +52,7 @@ pub fn handle_append_entry_request(
             if req.term > state.term {
                 state.term = req.term;
                 state.voted_for = Some(req.id);
+                state.current_leader = Some(req.id);
                 let mut reply = check_log_consistency(req, state);
                 reply.reset_timer = true;
                 return (reply, Some(RaftState::Follower));

@@ -36,7 +36,7 @@ impl Transport for TcpTransport {
 
 #[derive(Default)]
 pub struct SimTransport {
-    conn_res: Mutex<HashMap<String, Rpc>>,
+    pub conn_res: Mutex<HashMap<String, Rpc>>,
 }
 
 impl Transport for SimTransport {

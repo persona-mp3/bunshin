@@ -20,7 +20,7 @@ fn test_follower_accepts_higher_term_append_entry() {
     let clone = Arc::clone(&locked);
     let runner_thread = std::thread::spawn(move || {
         let mut s = clone.lock().expect("failed to acquire lock for state");
-        let timeout = Duration::from_secs(test_utils::TIMEOUT_DURATION_SECS);
+        let timeout = Duration::from_secs(test_utils::TIMEOUT_SECS);
 
         run_follower(&mut network_rx, &mut *s, timeout)
     });
@@ -89,7 +89,7 @@ fn test_follower_rejects_outdated_append_entry() {
     let clone = Arc::clone(&locked);
     std::thread::spawn(move || {
         let mut s = clone.lock().expect("failed to acquire lock for state");
-        let timeout = Duration::from_secs(test_utils::TIMEOUT_DURATION_SECS);
+        let timeout = Duration::from_secs(test_utils::TIMEOUT_SECS);
 
         run_follower(&mut network_rx, &mut *s, timeout);
     });

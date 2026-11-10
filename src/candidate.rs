@@ -27,7 +27,7 @@ pub fn run_candidate<T: Transport + 'static>(
     dialer: Arc<T>,
 ) -> RaftState {
     // clear voted_for and leader and increment term
-    state.voted_for = None;
+    state.voted_for = Some(state.id);
     state.current_leader = None;
     state.term += 1;
 
@@ -137,6 +137,8 @@ pub fn run_candidate<T: Transport + 'static>(
                             // now check if we've acheived majority
                             if recvd_votes >= majority {
                                 println!("won election, recvd: {:?} votes against {:?}", recvd_votes, majority);
+                                state.voted_for = Some(state.id);
+                                state.current_leader = Some(state.id);
                                 return RaftState::Leader;
                             }
                         } else {

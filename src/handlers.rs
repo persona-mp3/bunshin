@@ -49,7 +49,7 @@ pub fn handle_append_entry_request(
         }
 
         RaftState::Candidate => {
-            if req.term > state.term {
+            if req.term >= state.term {
                 state.term = req.term;
                 state.voted_for = Some(req.id);
                 state.current_leader = Some(req.id);

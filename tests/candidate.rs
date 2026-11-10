@@ -143,7 +143,7 @@ fn test_candidate_steps_down_from_append_entry_with_higher_term() {
     let (network_tx, mut network_rx) = channel::unbounded::<Packet>();
 
     let c = Arc::clone(&state);
-    thread::spawn(move || {
+    let transition = thread::spawn(move || {
         let mut state = c.lock().unwrap();
         let transition = run_candidate(
             &mut network_rx,
@@ -152,6 +152,7 @@ fn test_candidate_steps_down_from_append_entry_with_higher_term() {
             vec!["".to_string()],
             sim_transport,
         );
+        transition
     });
 
     let mut higher_append_entry = AppendEntryReq::default(EXTERNAL_NODE_ID);
@@ -182,4 +183,64 @@ fn test_candidate_steps_down_from_append_entry_with_higher_term() {
     );
     assert_eq!(state.term, higher_term);
     assert_eq!(state.voted_for, Some(EXTERNAL_NODE_ID));
+    assert_eq!(transition.join().unwrap(), RaftState::Follower)
+}
+
+
+#[test]
+fn test_candidate_steps_down_from_append_entry_with_same_term() {
+    let higher_term = 7;
+
+    let mut state = State::new(TEST_NODE_ID);
+    state.rs = RaftState::Candidate;
+    state.term = 6;
+
+    let mut state = Arc::new(Mutex::new(state));
+
+    let sim_transport = Arc::new(SimTransport::default());
+
+    let (network_tx, mut network_rx) = channel::unbounded::<Packet>();
+
+    let c = Arc::clone(&state);
+    let transition = thread::spawn(move || {
+        let mut state = c.lock().unwrap();
+        let transition = run_candidate(
+            &mut network_rx,
+            &mut state,
+            Duration::from_secs(TIMEOUT_SECS),
+            vec!["".to_string()],
+            sim_transport,
+        );
+        transition
+    });
+
+    let mut higher_append_entry = AppendEntryReq::default(EXTERNAL_NODE_ID);
+    higher_append_entry.term = higher_term;
+    higher_append_entry.info = Some("from test_node".to_string());
+
+    let (packet_tx, packet_rx) = channel::unbounded::<Rpc>();
+
+    let packet = Packet {
+        rpc: Rpc::AppendEntryReq(higher_append_entry),
+        sender: packet_tx,
+    };
+
+    network_tx
+        .send_timeout(packet, Duration::from_secs(1))
+        .expect("failed to send packet to run_candidate");
+
+    let res = packet_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("failed to recv packet from run_candidate");
+
+    drop(network_tx);
+    let state = state.lock().unwrap();
+    assert_eq!(
+        state.current_leader,
+        Some(EXTERNAL_NODE_ID),
+        "candidate node should update it's leader from the higher_append_entry request"
+    );
+    assert_eq!(state.term, higher_term);
+    assert_eq!(state.voted_for, Some(EXTERNAL_NODE_ID));
+    assert_eq!(transition.join().unwrap(), RaftState::Follower)
 }

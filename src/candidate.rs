@@ -67,8 +67,9 @@ pub fn run_candidate<T: Transport + 'static>(
     let timeout = channel::after(election_timeout);
     drop(votes_tx);
 
+    let total_nodes = peers.len() + 1; // peers plus this candidate
+    let majority = (total_nodes / 2) + 1;
     let mut recvd_votes = 1;
-    let majority = (peers.len() / 2) + 1;
 
     loop {
         select! {
@@ -85,6 +86,7 @@ pub fn run_candidate<T: Transport + 'static>(
                 println!("candidate:{} new packet: {:?}", state.id, packet.rpc);
                 match packet.rpc {
                     Rpc::AppendEntryReq(req) => {
+                       let valid_drop = req.term >= state.term;
                        let (reply, transition) = handle_append_entry_request(req, state);
 
                        let r = packet.sender.try_send(Rpc::AppendEntryReply(reply));
@@ -95,6 +97,7 @@ pub fn run_candidate<T: Transport + 'static>(
 
                        if transition.is_some() {
                            let next = transition.unwrap();
+                           assert_eq!(valid_drop, true, "Candidate must drop to Follower when AppendEntryRequest is similar or higher to term");
                            assert_eq!(next, RaftState::Follower, "Candidate must only recevive Follower state from handler");
                            return RaftState::Follower;
                        }

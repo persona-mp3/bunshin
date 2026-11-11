@@ -34,7 +34,7 @@ pub fn run_follower(
                 };
                 match packet.rpc {
                     Rpc::AppendEntryReq(req) => {
-                       let (reply, transition) = handle_append_entry_request(req, state);
+                       let (reply, transition) = handle_append_entry_request(&req, state);
                        if reply.reset_timer {
                            println!("resetting timer");
                            timeout_ch = channel::after(timeout)
@@ -52,8 +52,9 @@ pub fn run_follower(
                     }
 
                     Rpc::VoteReq(req) => {
-                        let (reply, transition) = handle_vote_request(req, state);
+                        let (reply, transition) = handle_vote_request(&req, state);
                         if reply.granted {
+                            println!("vote granted, resetting timer");
                             timeout_ch = channel::after(timeout);
                         }
 

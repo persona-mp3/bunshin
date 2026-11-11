@@ -1,15 +1,19 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::{
+    fs::File,
+    io::{BufWriter, Write},
+};
 
 pub mod candidate;
 pub mod follower;
 pub mod handlers;
+pub mod leader;
 pub mod machine;
 pub mod protocol;
 pub mod transport;
 pub mod utils;
+pub mod worker;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ShutdownErrors {

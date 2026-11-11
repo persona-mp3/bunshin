@@ -87,7 +87,7 @@ pub fn run_candidate<T: Transport + 'static>(
                 match packet.rpc {
                     Rpc::AppendEntryReq(req) => {
                        let valid_drop = req.term >= state.term;
-                       let (reply, transition) = handle_append_entry_request(req, state);
+                       let (reply, transition) = handle_append_entry_request(&req, state);
 
                        let r = packet.sender.try_send(Rpc::AppendEntryReply(reply));
                        match r {
@@ -105,7 +105,7 @@ pub fn run_candidate<T: Transport + 'static>(
                     }
 
                     Rpc::VoteReq(req) => {
-                        let (reply, transition) = handle_vote_request(req, state);
+                        let (reply, transition) = handle_vote_request(&req, state);
                         let _ = packet.sender.try_send(Rpc::VoteReply(reply));
 
                         if transition.is_some() {

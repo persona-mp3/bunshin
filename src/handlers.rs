@@ -2,7 +2,7 @@ use crate::protocol::{AppendEntryReply, AppendEntryReq, VoteReply, VoteReq};
 use crate::{RaftState, ShutdownErrors, State};
 
 pub fn handle_append_entry_request(
-    req: AppendEntryReq,
+    req: &AppendEntryReq,
     state: &mut State,
 ) -> (AppendEntryReply, Option<RaftState>) {
     if req.term < state.term {
@@ -71,9 +71,31 @@ pub fn handle_append_entry_request(
                 None,
             )
         }
+
+        RaftState::Leader => {
+            if req.term > state.term {
+                state.assign_leader(req.id);
+                state.term = req.term;
+
+                let reply = check_log_consistency(req, state);
+                return (reply, None);
+            };
+
+            (
+                AppendEntryReply {
+                    id: state.id,
+                    term: state.term,
+                    conflict_index: 0,
+                    conflict_term: None,
+                    reset_timer: false,
+                    success: false,
+                },
+                None,
+            )
+        }
         _ => {
             println!(
-                "unahndled case in handle_append_entry_request: state: {:?}, request: {:?}",
+                "unhandled case in handle_append_entry_request: state: {:?}, request: {:?}",
                 state, req
             );
             (
@@ -103,10 +125,10 @@ pub fn handle_append_entry_request(
 ///
 /// It also sets the [`AppendEntryReply.reset_timer`] field to true and [`State.term`] to
 /// match the current term of the request
-pub fn check_log_consistency(req: AppendEntryReq, state: &mut State) -> AppendEntryReply {
+pub fn check_log_consistency(req: &AppendEntryReq, state: &mut State) -> AppendEntryReply {
     let mut reply = AppendEntryReply::default(state.id);
     reply.reset_timer = true;
-    reply.term = state.term;
+    reply.term = req.term;
 
     let target_log = state.get_log_at_index(req.previous_log_index);
     let last_log = state.get_last_log();
@@ -148,17 +170,17 @@ pub fn check_log_consistency(req: AppendEntryReq, state: &mut State) -> AppendEn
     // ack it
     match req.entry {
         None => println!("recvd heartbeat from leader"),
-        Some(entry) => {
+        Some(ref entry) => {
             let log_exists = state.get_log_at_index(entry.index);
             match log_exists {
                 None => {
                     println!("no log exists at {} in mine", entry.index);
-                    state.append_log(entry);
+                    state.append_log(entry.clone());
                 }
                 Some(conflict) => {
                     if conflict.term != entry.term {
                         state.truncate_from(entry.index);
-                        state.append_log(entry);
+                        state.append_log(entry.clone());
                     } else {
                         println!("duplicate log recvd prev:{:?}, req:{:?}", conflict, entry)
                     }
@@ -169,7 +191,7 @@ pub fn check_log_consistency(req: AppendEntryReq, state: &mut State) -> AppendEn
     reply
 }
 
-pub fn handle_vote_request(req: VoteReq, state: &mut State) -> (VoteReply, Option<RaftState>) {
+pub fn handle_vote_request(req: &VoteReq, state: &mut State) -> (VoteReply, Option<RaftState>) {
     let mut reply = VoteReply {
         id: state.id,
         granted: false,
@@ -237,9 +259,28 @@ pub fn handle_vote_request(req: VoteReq, state: &mut State) -> (VoteReply, Optio
             // ignore similar or lower terms
             (reply, None)
         }
+
+        RaftState::Leader => {
+            if req.term > state.term {
+                state.term = req.term;
+                state.voted_for = Some(req.id);
+                state.current_leader = Some(req.id);
+
+                println!(
+                    "Leader:{} \trecvd vote request from a higher_term: {:?}, {:?}",
+                    state.id, req.term, req
+                );
+
+                reply.granted = true;
+                reply.term = state.term;
+                return (reply, Some(RaftState::Follower));
+            };
+
+            (reply, None)
+        }
         _ => {
             println!(
-                "Candidate:{:?} \tunhanlded case in handle_vote_request: state:{:?}, vote_req:{:?}",
+                "Shutdown:{:?} \tstate case in handle_vote_request: state:{:?}, vote_req:{:?}",
                 state.id, state, req
             );
             (reply, Some(RaftState::Shutdown(ShutdownErrors::Unexpected)))

@@ -20,7 +20,7 @@ fn test_vote_req_handler_rejects_outdated_logs_when_follower() {
         command: Command::default(),
     });
 
-    let (reply, transition) = handle_vote_request(vote_req, &mut state);
+    let (reply, transition) = handle_vote_request(&vote_req, &mut state);
     assert_eq!(
         reply.granted, false,
         "vote_request handler is to reject voterpcs with outdated logs"
@@ -51,7 +51,7 @@ fn test_vote_req_handler_accepts_higer_term_with_complete_logs_when_follower() {
         command: Command::default(),
     });
 
-    let (reply, transition) = handle_vote_request(vote_req.clone(), &mut state);
+    let (reply, transition) = handle_vote_request(&vote_req, &mut state);
     assert_eq!(
         reply.granted, true,
         "vote_request handler is to accept voterpcs with similar or up to date logs: {:?}",
@@ -71,7 +71,7 @@ fn test_vote_req_handler_accepts_higer_term_with_complete_logs_when_follower() {
     // also reset term
     state.term = 0;
 
-    let (reply, transition) = handle_vote_request(vote_req.clone(), &mut state);
+    let (reply, transition) = handle_vote_request(&vote_req, &mut state);
     assert_eq!(
         reply.granted, true,
         "vote_request handler is to accept voterpcs with similar or up to date logs: {:?}",
@@ -98,7 +98,7 @@ fn test_vote_handler_rejects_lower_or_similar_term_votes() {
 
     let mut state = State::new(TEST_NODE_ID);
 
-    let (reply, transition) = handle_vote_request(vote_req.clone(), &mut state);
+    let (reply, transition) = handle_vote_request(&vote_req, &mut state);
     assert_eq!(
         reply.granted, false,
         "handle_vote_request should not accept lower term votes. reply: {:?}",
@@ -116,7 +116,7 @@ fn test_vote_handler_rejects_lower_or_similar_term_votes() {
     // should also reject when the vote_reqis term is lower and it's own term is higher
     state.term = 4;
 
-    let (reply, transition) = handle_vote_request(vote_req.clone(), &mut state);
+    let (reply, transition) = handle_vote_request(&vote_req, &mut state);
     assert_eq!(
         reply.granted, false,
         "handler should not transition when reject a vote_req: {:?}",

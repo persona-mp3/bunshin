@@ -25,11 +25,10 @@ fn test_appends_new_logs_when_previous_logs_match() {
         info: None,
         previous_log_index: prev_log.index,
         previous_log_term: prev_log.term,
-        success: true,
         term: state.term,
     };
 
-    let reply = check_log_consistency(req, &mut state);
+    let reply = check_log_consistency(&req, &mut state);
     let expected_reply = AppendEntryReply {
         id: state.id,
         term: state.term,
@@ -70,7 +69,7 @@ fn test_correct_hints_are_sent_with_updated_logs() {
     req.previous_log_index = updated_logs[updated_logs.len() - 1].index;
     req.previous_log_term = updated_logs[updated_logs.len() - 1].term;
 
-    let reply = check_log_consistency(req, &mut state);
+    let reply = check_log_consistency(&req, &mut state);
     let mut hint_index = reply.conflict_index;
     let hint_term = reply.conflict_term;
 
@@ -97,7 +96,7 @@ fn test_correct_hints_are_sent_with_updated_logs() {
         req.entry = Some(next_log);
         req.previous_log_index = prev_log.index;
         req.previous_log_term = prev_log.term;
-        let reply = check_log_consistency(req, &mut state);
+        let reply = check_log_consistency(&req, &mut state);
         if !reply.success {
             hint_index = hint_index - 1;
             continue;

@@ -91,9 +91,6 @@ pub fn run_leader<T: Transport + 'static>(
                         let _ = packet.sender.try_send(Rpc::VoteReply(reply.clone()));
 
 
-                        // if we have to ttandion
-                        // we must check, is this a shudown, then go,
-                        // if a follower then check if term higher
                         if next.is_some() {
                             println!("stepping down from leader in vote_handler");
                             return (s.clone(), next.unwrap());

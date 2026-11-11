@@ -39,12 +39,12 @@ pub fn run_leader<T: Transport + 'static>(
     let mut timer = channel::after(hb);
 
     let mut node_id: u64;
-    let mut rulling_term: u64;
+    let mut ruling_term: u64;
 
     {
         let s = state.lock().unwrap();
         node_id = s.id;
-        rulling_term = s.term;
+        ruling_term = s.term;
     }
 
     let clone = Arc::clone(&state);
@@ -71,12 +71,12 @@ pub fn run_leader<T: Transport + 'static>(
 
                         // non-blocking and fails  after first try to send
                         let _ = packet.sender.try_send(Rpc::AppendEntryReply(reply.clone()));
-                        if reply.term > rulling_term {
+                        if reply.term > ruling_term {
                             println!("dropping from leader->follower");
                             return (s.clone(), RaftState::Follower)
-                        } else if req.term == rulling_term {
+                        } else if req.term == ruling_term {
                             println!("!! invariant found, two leaders for current term !!");
-                            println!("!! i_am:{:?}, my_term: {:?}, append_entry_req_from:{:?}", node_id, rulling_term, req);
+                            println!("!! i_am:{:?}, my_term: {:?}, append_entry_req_from:{:?}", node_id, ruling_term, req);
                             return (s.clone(), RaftState::Shutdown(ShutdownErrors::Unexpected));
                         };
 

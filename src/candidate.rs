@@ -97,7 +97,7 @@ pub fn run_candidate<T: Transport + 'static>(
 
                        if transition.is_some() {
                            let next = transition.unwrap();
-                           assert_eq!(valid_drop, true, "Candidate must drop to Follower when AppendEntryRequest is similar or higher to term");
+                           assert!(valid_drop, "Candidate must drop to Follower when AppendEntryRequest is similar or higher to term");
                            assert_eq!(next, RaftState::Follower, "Candidate must only recevive Follower state from handler");
                            return RaftState::Follower;
                        }

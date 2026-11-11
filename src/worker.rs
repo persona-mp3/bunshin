@@ -57,7 +57,7 @@ impl WorkerThread {
         loop {
             select! {
                 recv(timer) -> signal => {
-                    signal.expect(format!("worker:{} unexpected failure as signal for timer broke", self.addr).as_str());
+                    signal.unwrap_or_else(|_| panic!("worker:{} unexpected failure as signal for timer broke", self.addr));
                     initial_req = {
                         let current_state = self.state.lock().unwrap();
                         let  last_log = current_state.get_last_log();

@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use bunshin::{Command, LogEntry, State};
-use serde_json;
 use std::fs;
 use std::io::{BufRead, BufReader};
 
@@ -35,7 +34,7 @@ fn test_logs_are_persisted() -> Result<()> {
     let f = fs::File::options()
         .read(true)
         .open(state.file_name.clone())
-        .with_context(|| format!("failed to open node's persistent file"))
+        .with_context(|| "failed to open node's persistent file".to_string())
         .unwrap();
 
     let reader = BufReader::new(f);

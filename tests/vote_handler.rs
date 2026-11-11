@@ -21,15 +21,14 @@ fn test_vote_req_handler_rejects_outdated_logs_when_follower() {
     });
 
     let (reply, transition) = handle_vote_request(&vote_req, &mut state);
-    assert_eq!(
-        reply.granted, false,
+    assert!(
+        !reply.granted,
         "vote_request handler is to reject voterpcs with outdated logs"
     );
     assert_eq!(reply.id, TEST_NODE_ID);
 
-    assert_eq!(
+    assert!(
         transition.is_none(),
-        true,
         "handler should not transition when rejecting a vote_req"
     )
 }
@@ -52,16 +51,15 @@ fn test_vote_req_handler_accepts_higer_term_with_complete_logs_when_follower() {
     });
 
     let (reply, transition) = handle_vote_request(&vote_req, &mut state);
-    assert_eq!(
-        reply.granted, true,
+    assert!(
+        reply.granted,
         "vote_request handler is to accept voterpcs with similar or up to date logs: {:?}",
         reply
     );
     assert_eq!(reply.id, TEST_NODE_ID);
 
-    assert_eq!(
+    assert!(
         transition.is_none(),
-        true,
         "handler should not transition when accepting a vote_req: {:?}",
         transition
     );
@@ -72,16 +70,15 @@ fn test_vote_req_handler_accepts_higer_term_with_complete_logs_when_follower() {
     state.term = 0;
 
     let (reply, transition) = handle_vote_request(&vote_req, &mut state);
-    assert_eq!(
-        reply.granted, true,
+    assert!(
+        reply.granted,
         "vote_request handler is to accept voterpcs with similar or up to date logs: {:?}",
         reply
     );
     assert_eq!(reply.id, TEST_NODE_ID);
 
-    assert_eq!(
+    assert!(
         transition.is_none(),
-        true,
         "handler should not transition when accepting a vote_req: {:?}",
         transition
     );
@@ -99,16 +96,15 @@ fn test_vote_handler_rejects_lower_or_similar_term_votes() {
     let mut state = State::new(TEST_NODE_ID);
 
     let (reply, transition) = handle_vote_request(&vote_req, &mut state);
-    assert_eq!(
-        reply.granted, false,
+    assert!(
+        !reply.granted,
         "handle_vote_request should not accept lower term votes. reply: {:?}",
         reply
     );
 
     assert_eq!(reply.id, TEST_NODE_ID);
-    assert_eq!(
+    assert!(
         transition.is_none(),
-        true,
         "handler should not transition when reject a vote_req: {:?}",
         transition
     );
@@ -117,16 +113,15 @@ fn test_vote_handler_rejects_lower_or_similar_term_votes() {
     state.term = 4;
 
     let (reply, transition) = handle_vote_request(&vote_req, &mut state);
-    assert_eq!(
-        reply.granted, false,
+    assert!(
+        !reply.granted,
         "handler should not transition when reject a vote_req: {:?}",
         reply
     );
     assert_eq!(reply.id, TEST_NODE_ID);
 
-    assert_eq!(
+    assert!(
         transition.is_none(),
-        true,
         "handler should not transition when accepting a vote_req: {:?}",
         transition
     );

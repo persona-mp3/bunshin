@@ -145,14 +145,14 @@ fn test_candidate_steps_down_from_append_entry_with_higher_term() {
     let c = Arc::clone(&state);
     let transition = thread::spawn(move || {
         let mut state = c.lock().unwrap();
-        let transition = run_candidate(
+
+        run_candidate(
             &mut network_rx,
             &mut state,
             Duration::from_secs(TIMEOUT_SECS),
             vec!["".to_string()],
             sim_transport,
-        );
-        transition
+        )
     });
 
     let mut higher_append_entry = AppendEntryReq::default(EXTERNAL_NODE_ID);
@@ -186,7 +186,6 @@ fn test_candidate_steps_down_from_append_entry_with_higher_term() {
     assert_eq!(transition.join().unwrap(), RaftState::Follower)
 }
 
-
 #[test]
 fn test_candidate_steps_down_from_append_entry_with_same_term() {
     let higher_term = 7;
@@ -204,14 +203,14 @@ fn test_candidate_steps_down_from_append_entry_with_same_term() {
     let c = Arc::clone(&state);
     let transition = thread::spawn(move || {
         let mut state = c.lock().unwrap();
-        let transition = run_candidate(
+
+        run_candidate(
             &mut network_rx,
             &mut state,
             Duration::from_secs(TIMEOUT_SECS),
             vec!["".to_string()],
             sim_transport,
-        );
-        transition
+        )
     });
 
     let mut higher_append_entry = AppendEntryReq::default(EXTERNAL_NODE_ID);

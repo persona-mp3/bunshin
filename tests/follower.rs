@@ -1,5 +1,5 @@
 use bunshin::{LogEntry, RaftState, ShutdownErrors, State, follower::run_follower, protocol::*};
-use crossbeam::channel::{self, Receiver};
+use crossbeam::channel;
 use std::{
     sync::{Arc, Mutex},
     thread,
@@ -22,7 +22,7 @@ fn test_follower_accepts_higher_term_append_entry() {
         let mut s = clone.lock().expect("failed to acquire lock for state");
         let timeout = Duration::from_secs(test_utils::TIMEOUT_SECS);
 
-        run_follower(&mut network_rx, &mut *s, timeout)
+        run_follower(&mut network_rx, &mut s, timeout)
     });
 
     // acks higher term

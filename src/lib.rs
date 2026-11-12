@@ -235,16 +235,6 @@ impl State {
         }
     }
 
-    /// Raft uses the voting process to prevent a candidate from winning an election
-    /// unless its log contains all committed entries. A candidate must contact a
-    /// majority of the cluster in order to be elected, which means that every
-    /// committed entry must be present in at least one of those servers. If the
-    /// candidate's log is at least as up-to-date as any other log in that majority
-    /// (where "up-to-date" is defined precisely below), then it will hold all the
-    /// committed entries. The RequestVote RPC implements this restriction: the RPC
-    /// includes information about the candidate's log, and the voter denies its vote
-    /// if its own log is more up-to-date than that of the candidate.
-    ///
     /// Raft determines which of two logs is more up-to-date by comparing the index
     /// and term of the last entries in the logs. If the logs have last entries with
     /// different terms, then the log with the later term is more up-to-date. If the

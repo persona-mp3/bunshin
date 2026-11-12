@@ -34,11 +34,12 @@ impl WorkerThread {
         let reader = BufReader::new(conn);
         let mut json_reader = serde_json::Deserializer::from_reader(reader).into_iter();
 
-        let mut timer = channel::after(hb);
-        // let c = Arc::clone(&self.state);
+        let mut timer = channel::after(std::time::Duration::from_millis(1));
+        let mut node_id: u64 = 0;
         let mut initial_req = {
             let s = self.state.lock().unwrap();
             let last_log = s.get_last_log();
+            node_id = s.id;
             AppendEntryReq {
                 id: s.id,
                 term: s.term,
@@ -78,8 +79,21 @@ impl WorkerThread {
                     // 1. if failed log the error
                     let reply = match reply {
                         Ok(r) =>  r,
+                        // TODO(daniel): This is why we might need to use the bus crate [https://github.com/jonhoo/bus]
+                        // We need to be able to tell each worker when to shutdown. With our current
+                        // solution:
+                        // - cannot contact peer, then return
+                        // - if it was a temporary failure, the peer node will continue to increment
+                        //   it's term until it's granted a vote.
+                        //      - Even though they have a higher term, another legit Candidate for a
+                        //        higher term will have to step down and only Followers can reject,
+                        //        but that was an oversight and will need to be implemented.
+                        // - outer leader loop leaves these threads behind
+                        // TASK: Integrate bus crate to allow for pub-sub or multiple
+                        // consumer single-sender task to let the leader loop close
+                        // all worker threads
                         Err(err) => {
-                            println!("worker:{} failed to send hb. {}",self.addr, err ); return Ok(())
+                            println!("[worker:{}] failed to send hb. {}", node_id, err ); return Ok(())
                         ;},
                     };
 
@@ -91,21 +105,28 @@ impl WorkerThread {
                         Rpc::AppendEntryReply(reply) => reply,
                         _ => {
 
-                            self.state.lock().unwrap();
-                            panic!("worker:{}!! Expected AppendEntryReply got rpc: {:?}. Held the lock and pancked, Node should shutdown", self.addr, reply)
+                            let _drop_lock = self.state.lock().unwrap();
+
+                            panic!(
+                                "worker:{}!! Expected AppendEntryReply got rpc: {:?}. Held the lock and panicked, Node should shutdown",
+                                node_id, reply
+                            )
                         }
                     };
 
                     if append_entry_reply.term > initial_req.term {
-                        println!("worker:{} stepping down our term:{} is outdated from reply: {:?}", self.addr, initial_req.term, append_entry_reply);
+                        println!(
+                            "[worker:{}]stepping down our term:{} is outdated from reply: {:?}",
+                            node_id, initial_req.term, append_entry_reply
+                        );
                         break
                     }
 
                     assert_eq!(
                         append_entry_reply.term,
                         initial_req.term,
-                        "worker:{} expected AppendEntryReply term to match our term:{}. Followers should send a term match. Reply: {:?}",
-                        initial_req.id, initial_req.term, append_entry_reply
+                        "[worker:{}]expected AppendEntryReply term to match our term:{}. Followers should send a term match. Reply: {:?}",
+                        node_id, initial_req.term, append_entry_reply
                     );
 
                     if !append_entry_reply.success  {

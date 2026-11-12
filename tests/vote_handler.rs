@@ -14,7 +14,7 @@ fn test_vote_req_handler_rejects_outdated_logs_when_follower() {
 
     let mut state = State::new(TEST_NODE_ID);
     // make followers log updated
-    state.append_log(LogEntry {
+    state.append_entry(LogEntry {
         index: 1,
         term: 1,
         command: Command::default(),
@@ -44,7 +44,7 @@ fn test_vote_req_handler_accepts_higer_term_with_complete_logs_when_follower() {
 
     let mut state = State::new(TEST_NODE_ID);
     // make followers log updated
-    state.append_log(LogEntry {
+    state.append_entry(LogEntry {
         index: 1,
         term: 1,
         command: Command::default(),
@@ -124,5 +124,42 @@ fn test_vote_handler_rejects_lower_or_similar_term_votes() {
         transition.is_none(),
         "handler should not transition when accepting a vote_req: {:?}",
         transition
+    );
+}
+
+#[test]
+fn test_handler_rejcts_higher_terms_with_incomplete_logs() {
+    let higher_term = 9;
+    let base_term = 8;
+
+    let vote_req = VoteReq {
+        id: EXTERNAL_NODE_ID,
+        last_log_index: 0,
+        last_log_term: 0,
+        term: higher_term,
+    };
+
+    let mut state = State::new(TEST_NODE_ID);
+    state.term = base_term;
+    // update it's logs using 1based index
+    let mut e = LogEntry::default();
+    e.index = state.logs.len();
+    state.append_entry(e);
+
+    let (reply, transition) = handle_vote_request(&vote_req, &mut state);
+    assert!(
+        !reply.granted,
+        "vote_request handler should not grant votes with higher terms but incomplete logs: {:?}",
+        reply
+    );
+
+    assert!(
+        transition.is_none(),
+        "vote_request handler should not return state transtion on a rejected vote: {:?}",
+        transition
+    );
+    assert_eq!(
+        state.term, base_term,
+        "vote_request handler should not update it's term after a rejected vote",
     );
 }

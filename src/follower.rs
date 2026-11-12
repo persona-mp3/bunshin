@@ -36,7 +36,6 @@ pub fn run_follower(
                     Rpc::AppendEntryReq(req) => {
                        let (reply, transition) = handle_append_entry_request(&req, state);
                        if reply.reset_timer {
-                           println!("resetting timer");
                            timeout_ch = channel::after(timeout)
                        }
 

@@ -166,7 +166,7 @@ impl State {
         // current_logs = [0, 1, 2, 3, 4]
         // the next log should be entry.index should be 5
         assert_eq!(
-            self.logs.len() + 1,
+            self.logs.len(),
             entry.index,
             "
             it is required that a new log getting appended 
@@ -213,9 +213,6 @@ impl State {
         // let (truncated_logs, _) = self.logs.split_at(start_index);
         // self.logs = truncated_logs.to_vec()
         self.logs.truncate(start_index);
-    }
-    pub fn append_log(&mut self, log_entry: LogEntry) {
-        self.logs.push(log_entry)
     }
 
     /// Raft uses the voting process to prevent a candidate from winning an election

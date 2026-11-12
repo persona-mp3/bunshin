@@ -36,11 +36,19 @@ pub fn handle_append_entry_request(
             let current_leader = state.get_leader();
             if current_leader != req.id {
                 println!(
-                    "duplicate leaders for term:{:?}, leader: {}, req: {:?}",
-                    state.term, current_leader, req
+                    "[follower:{}] \tduplicate leaders for term:{:?}, leader: {}, req: {:?}",
+                    state.id, state.term, current_leader, req
                 );
 
-                return (AppendEntryReply::default(state.id), None);
+                let reply = AppendEntryReply {
+                    id: state.id,
+                    term: state.term,
+                    conflict_index: 0,
+                    conflict_term: None,
+                    reset_timer: false,
+                    success: false,
+                };
+                return (reply, None);
             }
 
             // now terms are equal, and we have a valid leader that matches our stored one
@@ -169,18 +177,18 @@ pub fn check_log_consistency(req: &AppendEntryReq, state: &mut State) -> AppendE
     // if we already have it to avoid duplicates, and then append ,otherwise we just
     // ack it
     match req.entry {
-        None => println!("recvd heartbeat from leader"),
+        None => println!("recvd:{} heartbeat from leader: {:?}", state.id, req),
         Some(ref entry) => {
             let log_exists = state.get_log_at_index(entry.index);
             match log_exists {
                 None => {
                     println!("no log exists at {} in mine", entry.index);
-                    state.append_log(entry.clone());
+                    state.append_entry(entry.clone());
                 }
                 Some(conflict) => {
                     if conflict.term != entry.term {
                         state.truncate_from(entry.index);
-                        state.append_log(entry.clone());
+                        state.append_entry(entry.clone());
                     } else {
                         println!("duplicate log recvd prev:{:?}, req:{:?}", conflict, entry)
                     }
@@ -191,99 +199,149 @@ pub fn check_log_consistency(req: &AppendEntryReq, state: &mut State) -> AppendE
     reply
 }
 
+// pub fn handle_vote_request(req: &VoteReq, state: &mut State) -> (VoteReply, Option<RaftState>) {
+//     let mut reply = VoteReply {
+//         id: state.id,
+//         granted: false,
+//         term: state.term,
+//     };
+//     match state.rs {
+//         RaftState::Follower => {
+//             if req.term < state.term {
+//                 println!(
+//                     "Follower:{} \tdenying recvd vote_request for current/older term: {:?}, vote_req {:?}",
+//                     state.id, state.term, req
+//                 );
+//                 (reply, None)
+//             } else if state.term == req.term {
+//                 // this is possible as a node might have been partitioned from the cluster
+//                 // and hasn't seen new term changes. for example, it can send requests
+//                 // but cannot receive responses
+//                 println!(
+//                     "Follower:{} \trecvd a vote request for current term: {:?}, current_state: {:?}, vote_req: {:?}",
+//                     state.id, state.term, state, req
+//                 );
+//                 (reply, None)
+//             } else {
+//                 state.term = req.term;
+//                 if state.candidate_log_is_up_to_date(req.last_log_index, req.last_log_term) {
+//                     reply.granted = true;
+//                     reply.term = state.term;
+//                     println!(
+//                         "Follower:{:?} \trecvd vote_req from higher term: {:?}",
+//                         state.id, req
+//                     );
+//                     return (reply, None);
+//                 }
+//                 (reply, None)
+//             }
+//         }
+//         RaftState::Candidate => {
+//             // SAFETY : So there's no explicit mention or I haven't seen it yet, that
+//             // a Candidate doesn't need to check another candidates log. It simply
+//             // rejects it's VoteRpc since it's already granted vote to itself.
+//             // If the VoteRpc came from a higher term, it should update it's term
+//             // and step down
+//             // The election restriction was that, before voting a candidate, you need
+//             // to check if their logs are up to date, doesn't that apply here? Since
+//             // the node is a Candidate, it will only accept higher terms, so in effect
+//             // it's voting for a higher term, but what if IT's own logs are more than
+//             // that of the sender? We should come back to this.
+//
+//             // if term is higher, then drop down to follower
+//             if req.term > state.term {
+//                 state.term = req.term;
+//                 state.voted_for = Some(req.id);
+//                 state.current_leader = Some(req.id);
+//
+//                 println!(
+//                     "Candidate:{} \trecvd vote request from a higher_term: {:?}, {:?}",
+//                     state.id, req.term, req
+//                 );
+//
+//                 reply.granted = true;
+//                 reply.term = state.term;
+//                 return (reply, Some(RaftState::Follower));
+//             };
+//
+//             // ignore similar or lower terms
+//             (reply, None)
+//         }
+//
+//         RaftState::Leader => {
+//             if req.term > state.term {
+//                 state.term = req.term;
+//                 state.voted_for = Some(req.id);
+//                 state.current_leader = Some(req.id);
+//                 // then check
+//
+//                 println!(
+//                     "Leader:{} \trecvd vote request from a higher_term: {:?}, {:?}",
+//                     state.id, req.term, req
+//                 );
+//
+//                 reply.granted = true;
+//                 reply.term = state.term;
+//                 return (reply, Some(RaftState::Follower));
+//             };
+//
+//             (reply, None)
+//         }
+//         _ => {
+//             println!(
+//                 "Shutdown:{:?} \tstate case in handle_vote_request: state:{:?}, vote_req:{:?}",
+//                 state.id, state, req
+//             );
+//             (reply, Some(RaftState::Shutdown(ShutdownErrors::Unexpected)))
+//         }
+//     }
+// }
+
 pub fn handle_vote_request(req: &VoteReq, state: &mut State) -> (VoteReply, Option<RaftState>) {
-    let mut reply = VoteReply {
+    let reject_reply = VoteReply {
         id: state.id,
-        granted: false,
         term: state.term,
+        granted: false,
     };
-    match state.rs {
-        RaftState::Follower => {
-            if req.term < state.term {
-                println!(
-                    "Follower:{} \tdenying recvd vote_request for current/older term: {:?}, vote_req {:?}",
-                    state.id, state.term, req
-                );
-                (reply, None)
-            } else if state.term == req.term {
-                // this is possible as a node might have been partitioned from the cluster
-                // and hasn't seen new term changes. for example, it can send requests
-                // but cannot receive responses
-                println!(
-                    "Follower:{} \trecvd a vote request for current term: {:?}, current_state: {:?}, vote_req: {:?}",
-                    state.id, state.term, state, req
-                );
-                (reply, None)
-            } else {
-                state.term = req.term;
-                if state.candidate_log_is_up_to_date(req.last_log_index, req.last_log_term) {
-                    reply.granted = true;
-                    reply.term = state.term;
-                    println!(
-                        "Follower:{:?} \trecvd vote_req from higher term: {:?}",
-                        state.id, req
-                    );
-                    return (reply, None);
-                }
-                (reply, None)
-            }
-        }
-        RaftState::Candidate => {
-            // SAFETY : So there's no explicit mention or I haven't seen it yet, that
-            // a Candidate doesn't need to check another candidates log. It simply
-            // rejects it's VoteRpc since it's already granted vote to itself.
-            // If the VoteRpc came from a higher term, it should update it's term
-            // and step down
-            // The election restriction was that, before voting a candidate, you need
-            // to check if their logs are up to date, doesn't that apply here? Since
-            // the node is a Candidate, it will only accept higher terms, so in effect
-            // it's voting for a higher term, but what if IT's own logs are more than
-            // that of the sender? We should come back to this.
 
-            // if term is higher, then drop down to follower
-            if req.term > state.term {
-                state.term = req.term;
-                state.voted_for = Some(req.id);
-                state.current_leader = Some(req.id);
+    let mut accept_reply = VoteReply {
+        id: state.id,
+        term: state.term,
+        granted: true,
+    };
 
-                println!(
-                    "Candidate:{} \trecvd vote request from a higher_term: {:?}, {:?}",
-                    state.id, req.term, req
-                );
+    if req.term <= state.term {
+        (reject_reply, None)
+    } else {
+        // check if candidates log is up to date
+        let logs_are_up_to_date =
+            state.candidate_log_is_up_to_date(req.last_log_index, req.last_log_term);
 
-                reply.granted = true;
-                reply.term = state.term;
-                return (reply, Some(RaftState::Follower));
-            };
-
-            // ignore similar or lower terms
-            (reply, None)
-        }
-
-        RaftState::Leader => {
-            if req.term > state.term {
-                state.term = req.term;
-                state.voted_for = Some(req.id);
-                state.current_leader = Some(req.id);
-
-                println!(
-                    "Leader:{} \trecvd vote request from a higher_term: {:?}, {:?}",
-                    state.id, req.term, req
-                );
-
-                reply.granted = true;
-                reply.term = state.term;
-                return (reply, Some(RaftState::Follower));
-            };
-
-            (reply, None)
-        }
-        _ => {
+        if !logs_are_up_to_date {
             println!(
-                "Shutdown:{:?} \tstate case in handle_vote_request: state:{:?}, vote_req:{:?}",
-                state.id, state, req
+                "node:{} \tdenying vote as candidate_logs are not up to date: {:?}",
+                state.id, req
             );
-            (reply, Some(RaftState::Shutdown(ShutdownErrors::Unexpected)))
+            (reject_reply, None)
+        } else {
+            println!(
+                "node:{} \tgranting vote to: {:?}, my_term:{}",
+                state.id, req, state.term
+            );
+            state.term = req.term;
+            accept_reply.term = req.term;
+
+            state.voted_for = Some(req.id);
+            match state.rs {
+                RaftState::Candidate | RaftState::Leader => {
+                    (accept_reply, Some(RaftState::Follower))
+                }
+                RaftState::Follower => (accept_reply, None),
+                _ => (
+                    accept_reply,
+                    Some(RaftState::Shutdown(ShutdownErrors::Unexpected)),
+                ),
+            }
         }
     }
 }

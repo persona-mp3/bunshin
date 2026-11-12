@@ -1,12 +1,18 @@
 use crate::State;
 use crate::protocol::{AppendEntryReply, AppendEntryReq, VoteReply, VoteReq};
 
-/// append_handler rejects all terms lower than it's self. If the append entry has a greater term
-/// it updates it's `current_leader` to the id and thereby clearing any previous leader.
-/// If the terms are equal, it checks against it's current leader and rejects the request if they
-/// don't match.
+/// append_handler rejects all terms lower than itself. If the append entry has a greater term
+/// it updates it's `current_leader` to the id of the sender, and also clears any previous leader it
+/// might have had.
 ///
-/// When the sender of the Rpc is recognised by the node, it checks using [`check_log_consistency`]
+/// If the terms are equal, it checks against it's current leader and rejects the request if they
+/// don't match. If the case that this node has not leader, it still updates it's leader to the
+/// sender of the rpc. This leader might be cleared if
+///     - the node has just been started for the first time
+///     - the node was in a Candidate state and lost an election with no leader
+///
+/// When the sender of the Rpc is recognised by the node, it checks it's log using the [`check_log_consistency`]
+/// and rejecting the request if the logs aren't consitent by setting `success` to false, otherwise true
 pub fn append_handler(req: &AppendEntryReq, state: &mut State) -> AppendEntryReply {
     let reject_reply = AppendEntryReply {
         id: state.id,

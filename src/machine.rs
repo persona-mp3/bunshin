@@ -65,11 +65,11 @@ impl Machine {
                 }
                 RaftState::Leader => {
                     let timeout = Duration::from_secs(HEARTBEAT_TIMEOUT);
-                    let t = Arc::clone(&dialer);
+                    // let t = Arc::clone(&dialer);
                     let protected_state = Arc::new(Mutex::new(state.clone()));
 
                     let (new_state, next_state) =
-                        run_leader(network_rx, self.peers.clone(), protected_state, timeout, t);
+                        run_leader(network_rx, self.peers.clone(), protected_state, timeout);
 
                     assert_ne!(
                         next_state,

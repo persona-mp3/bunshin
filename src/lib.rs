@@ -13,7 +13,6 @@ pub mod machine;
 pub mod protocol;
 pub mod transport;
 pub mod utils;
-pub mod worker;
 
 // TODO(daniel): this should be included in a configuration option
 // and in relation to the election_timeout generated from `utils::random_timeout`
@@ -219,6 +218,21 @@ impl State {
         // let (truncated_logs, _) = self.logs.split_at(start_index);
         // self.logs = truncated_logs.to_vec()
         self.logs.truncate(start_index);
+    }
+
+    pub fn get_previous_log(&mut self) -> LogEntry {
+        if self.logs.is_empty() {
+            LogEntry::default()
+        } else if self.logs.len() == 1 {
+            self.logs[0].clone()
+        } else {
+            let prev_log = self.logs.get(self.logs.len() - 2);
+            if let Some(log) = prev_log {
+                log.clone()
+            } else {
+                LogEntry::default()
+            }
+        }
     }
 
     /// Raft uses the voting process to prevent a candidate from winning an election

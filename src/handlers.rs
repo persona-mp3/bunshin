@@ -1,6 +1,262 @@
 use crate::protocol::{AppendEntryReply, AppendEntryReq, VoteReply, VoteReq};
 use crate::{RaftState, ShutdownErrors, State};
 
+/// check_log_consistency takes the `previous_log_index` and `previous_log_term`
+/// from a request and checks if it has any any log at that index.
+/// - If it doesn't have any log at that index, it rejects the request.
+///   But it also provides a hint to the leader via the [`AppendEntryReply.conflict_index`]
+///   which, the index of last log that it has.
+///
+/// - If it does have an entry at that index and the terms do not match, the
+///   [`AppendEntryReply.conflict_term`] is updated with that log's term.
+///
+/// If the above checks have are succesfully, it then checks if the request came
+/// with a new entry [`AppendEntryReq.entry`]. If it doesn't it's considered a heartbeat
+///
+/// If it does contain a new entry, it checks before inserting into it's own
+/// logs that nothing there exists. If there exists one and it's different from
+/// the request's, the log is truncated before appending the new one. If the logs
+/// are different, it simply ignores it
+///
+/// It also sets the [`AppendEntryReply.reset_timer`] field to true and [`State.term`] to
+/// match the current term of the request
+pub fn check_log_consistency(req: &AppendEntryReq, state: &mut State) -> AppendEntryReply {
+    let mut reply = AppendEntryReply::default(state.id);
+    reply.reset_timer = true;
+    reply.term = req.term;
+
+    let target_log = state.get_log_at_index(req.previous_log_index);
+
+    // we first check if we have any log at the previous_log_index
+    // if it doesn't exist, we need to reject the reject the request, and send
+    // a hint to the sender/leader what our last_log.index and last_log.term lies at.
+    // Hence the leader can simply skip closer to the hint we supply under.
+    // If we do have an log at such index and the terms differ, we set both conflict_index
+    // and conflict_term
+    let log_entry = match target_log {
+        None => {
+            let last_log = state.get_last_log();
+            println!("no previous_log at {} from leader", req.previous_log_index);
+            reply.conflict_index = last_log.index;
+            reply.conflict_term = None;
+            reply.success = false;
+            return reply;
+        }
+
+        Some(log_entry) => log_entry,
+    };
+
+    // we have a conflict at this log position, so we need to reject it and hint to the
+    // leader/sender that we have an index at the position, but the terms don't match
+    // so we send it again. This time the leader could decide to skip that particular
+    // term as whole
+    if log_entry.term != req.previous_log_term {
+        println!("term_conflicts? _ => {:?}, mine: {:?}", req, log_entry);
+        reply.conflict_index = log_entry.index;
+        reply.conflict_term = Some(log_entry.term);
+        return reply;
+    }
+
+    // our logs match with the leaders'
+    reply.success = true;
+
+    // since we have a matching log at previous_log_index and previous_log_term, we need to check
+    // if this was just a heartbeat or a new entry. If it's a new entry, we check
+    // if we already have it to avoid duplicates, and then append ,otherwise we just
+    // ack it
+    match req.entry {
+        None => println!("[follower:{}] heartbeat from leader: {:?}", state.id, req),
+        Some(ref entry) => {
+            let log_exists = state.get_log_at_index(entry.index);
+            match log_exists {
+                None => {
+                    println!(
+                        "[follower:{}] no log exists at {} in mine",
+                        state.id, entry.index
+                    );
+                    state.append_entry(entry.clone());
+                }
+                Some(conflict) => {
+                    if conflict.term != entry.term {
+                        state.truncate_from(entry.index);
+                        state.append_entry(entry.clone());
+                    } else {
+                        println!(
+                            "[follower:{}] duplicate log recvd prev:{:?}, req:{:?}",
+                            state.id, conflict, entry
+                        )
+                    }
+                }
+            }
+        }
+    }
+    reply
+}
+
+pub fn handle_vote_request(req: &VoteReq, state: &mut State) -> (VoteReply, Option<RaftState>) {
+    let reject_reply = VoteReply {
+        id: state.id,
+        term: state.term,
+        granted: false,
+    };
+
+    let mut accept_reply = VoteReply {
+        id: state.id,
+        term: state.term,
+        granted: true,
+    };
+
+    if req.term <= state.term {
+        (reject_reply, None)
+    } else {
+        // check if candidates log is up to date
+        let logs_are_up_to_date =
+            state.candidate_log_is_up_to_date(req.last_log_index, req.last_log_term);
+
+        if !logs_are_up_to_date {
+            println!(
+                "node:{} \tdenying vote as candidate_logs are not up to date: {:?}",
+                state.id, req
+            );
+            (reject_reply, None)
+        } else {
+            println!(
+                "node:{} \tgranting vote to: {:?}, my_term:{}",
+                state.id, req, state.term
+            );
+            state.term = req.term;
+            accept_reply.term = req.term;
+            state.voted_for = Some(req.id);
+
+            // NOTE that we don't update the state.current_leader. this is because
+            // the node we gave our vote might not have won the election, instead
+            // we  leave that to the follower state to update.
+            // clear the old leader as it belongs to an older term
+            // the follower state will then accept whoever won the election
+            // for this new term
+            state.current_leader = None;
+            match state.rs {
+                RaftState::Candidate | RaftState::Leader => {
+                    (accept_reply, Some(RaftState::Follower))
+                }
+                RaftState::Follower => (accept_reply, None),
+                _ => (
+                    accept_reply,
+                    Some(RaftState::Shutdown(ShutdownErrors::Unexpected)),
+                ),
+            }
+        }
+    }
+}
+
+pub fn append_handler(req: &AppendEntryReq, state: &mut State) -> AppendEntryReply {
+    let reject_reply = AppendEntryReply {
+        id: state.id,
+        term: state.term,
+        success: false,
+        conflict_index: 0,
+        conflict_term: None,
+        reset_timer: false,
+    };
+
+    if req.term < state.term {
+        return reject_reply;
+    }
+
+    let mut accept_reply = AppendEntryReply {
+        id: state.id,
+        term: state.term,
+        success: false,
+        conflict_index: 0,
+        conflict_term: None,
+        reset_timer: true,
+    };
+
+    let current_leader = state.current_leader;
+    if req.term > state.term {
+        // update the leader for current term
+        state.current_leader = Some(req.id);
+        state.voted_for = Some(req.id);
+        state.term = req.term;
+
+        let stats = check_log_consistency(req, state);
+        accept_reply.conflict_index = stats.conflict_index;
+        accept_reply.conflict_term = stats.conflict_term;
+        accept_reply.success = stats.success;
+        accept_reply.term = req.term;
+        accept_reply
+    } else {
+        // terms are equal
+        // - check if it's a valid/new leader
+        //  - new leader if current_leader is None
+        //  - valid leader if current_leader.Some == req.id
+        if let Some(leader) = current_leader {
+            // invalid leader
+            if leader != req.id {
+                return reject_reply;
+            }
+            // valid leader
+
+            let stats = check_log_consistency(req, state);
+            accept_reply.conflict_index = stats.conflict_index;
+            accept_reply.conflict_term = stats.conflict_term;
+            accept_reply.success = stats.success;
+            accept_reply.term = req.term;
+            accept_reply
+        } else {
+            // new leader for new term
+
+            state.current_leader = Some(req.id);
+            state.voted_for = Some(req.id);
+            state.term = req.term;
+
+            let stats = check_log_consistency(req, state);
+            accept_reply.conflict_index = stats.conflict_index;
+            accept_reply.conflict_term = stats.conflict_term;
+            accept_reply.success = stats.success;
+            accept_reply.term = req.term;
+            accept_reply
+        }
+    }
+}
+
+pub fn vote_handler(req: &VoteReq, state: &mut State) -> VoteReply {
+    let reject_reply = VoteReply {
+        id: state.id,
+        term: state.term,
+        granted: false,
+    };
+
+    if req.term <= state.term {
+        return reject_reply;
+    }
+
+    // a vote request is valid if the term is higher, and the
+    // candidate's logs are up to date
+    let accept_reply = VoteReply {
+        id: state.id,
+        term: req.term,
+        granted: true,
+    };
+
+    let logs_are_up_to_date =
+        state.candidate_log_is_up_to_date(req.last_log_index, req.last_log_term);
+    if !logs_are_up_to_date {
+        reject_reply
+    } else {
+        println!(
+            "node:{} \tgranting vote to: {:?}, my_term:{}",
+            state.id, req, state.term
+        );
+
+        state.term = req.term;
+        state.voted_for = Some(req.id);
+        state.current_leader = None;
+
+        accept_reply
+    }
+}
+
 // pub fn handle_append_entry_request(
 //     req: &AppendEntryReq,
 //     state: &mut State,
@@ -123,98 +379,6 @@ use crate::{RaftState, ShutdownErrors, State};
 //     }
 // }
 
-/// check_log_consistency takes the `previous_log_index` and `previous_log_term`
-/// from a request and checks if it has any any log at that index.
-/// - If it doesn't have any log at that index, it rejects the request.
-///   But it also provides a hint to the leader via the [`AppendEntryReply.conflict_index`]
-///   which, the index of last log that it has.
-///
-/// - If it does have an entry at that index and the terms do not match, the
-///   [`AppendEntryReply.conflict_term`] is updated with that log's term.
-///
-/// If the above checks have are succesfully, it then checks if the request came
-/// with a new entry [`AppendEntryReq.entry`]. If it doesn't it's considered a heartbeat
-///
-/// If it does contain a new entry, it checks before inserting into it's own
-/// logs that nothing there exists. If there exists one and it's different from
-/// the request's, the log is truncated before appending the new one. If the logs
-/// are different, it simply ignores it
-///
-/// It also sets the [`AppendEntryReply.reset_timer`] field to true and [`State.term`] to
-/// match the current term of the request
-pub fn check_log_consistency(req: &AppendEntryReq, state: &mut State) -> AppendEntryReply {
-    let mut reply = AppendEntryReply::default(state.id);
-    reply.reset_timer = true;
-    reply.term = req.term;
-
-    let target_log = state.get_log_at_index(req.previous_log_index);
-
-    // we first check if we have any log at the previous_log_index
-    // if it doesn't exist, we need to reject the reject the request, and send
-    // a hint to the sender/leader what our last_log.index and last_log.term lies at.
-    // Hence the leader can simply skip closer to the hint we supply under.
-    // If we do have an log at such index and the terms differ, we set both conflict_index
-    // and conflict_term
-    let log_entry = match target_log {
-        None => {
-            let last_log = state.get_last_log();
-            println!("no previous_log at {} from leader", req.previous_log_index);
-            reply.conflict_index = last_log.index;
-            reply.conflict_term = None;
-            reply.success = false;
-            return reply;
-        }
-
-        Some(log_entry) => log_entry,
-    };
-
-    // we have a conflict at this log position, so we need to reject it and hint to the
-    // leader/sender that we have an index at the position, but the terms don't match
-    // so we send it again. This time the leader could decide to skip that particular
-    // term as whole
-    if log_entry.term != req.previous_log_term {
-        println!("term_conflicts? _ => {:?}, mine: {:?}", req, log_entry);
-        reply.conflict_index = log_entry.index;
-        reply.conflict_term = Some(log_entry.term);
-        return reply;
-    }
-
-    // our logs match with the leaders'
-    reply.success = true;
-
-    // since we have a matching log at previous_log_index and previous_log_term, we need to check
-    // if this was just a heartbeat or a new entry. If it's a new entry, we check
-    // if we already have it to avoid duplicates, and then append ,otherwise we just
-    // ack it
-    match req.entry {
-        None => println!("[follower:{}] heartbeat from leader: {:?}", state.id, req),
-        Some(ref entry) => {
-            let log_exists = state.get_log_at_index(entry.index);
-            match log_exists {
-                None => {
-                    println!(
-                        "[follower:{}] no log exists at {} in mine",
-                        state.id, entry.index
-                    );
-                    state.append_entry(entry.clone());
-                }
-                Some(conflict) => {
-                    if conflict.term != entry.term {
-                        state.truncate_from(entry.index);
-                        state.append_entry(entry.clone());
-                    } else {
-                        println!(
-                            "[follower:{}] duplicate log recvd prev:{:?}, req:{:?}",
-                            state.id, conflict, entry
-                        )
-                    }
-                }
-            }
-        }
-    }
-    reply
-}
-
 // pub fn handle_vote_request(req: &VoteReq, state: &mut State) -> (VoteReply, Option<RaftState>) {
 //     let mut reply = VoteReply {
 //         id: state.id,
@@ -312,202 +476,3 @@ pub fn check_log_consistency(req: &AppendEntryReq, state: &mut State) -> AppendE
 //         }
 //     }
 // }
-
-pub fn handle_vote_request(req: &VoteReq, state: &mut State) -> (VoteReply, Option<RaftState>) {
-    let reject_reply = VoteReply {
-        id: state.id,
-        term: state.term,
-        granted: false,
-    };
-
-    let mut accept_reply = VoteReply {
-        id: state.id,
-        term: state.term,
-        granted: true,
-    };
-
-    if req.term <= state.term {
-        (reject_reply, None)
-    } else {
-        // check if candidates log is up to date
-        let logs_are_up_to_date =
-            state.candidate_log_is_up_to_date(req.last_log_index, req.last_log_term);
-
-        if !logs_are_up_to_date {
-            println!(
-                "node:{} \tdenying vote as candidate_logs are not up to date: {:?}",
-                state.id, req
-            );
-            (reject_reply, None)
-        } else {
-            println!(
-                "node:{} \tgranting vote to: {:?}, my_term:{}",
-                state.id, req, state.term
-            );
-            state.term = req.term;
-            accept_reply.term = req.term;
-            state.voted_for = Some(req.id);
-
-            // NOTE that we don't update the state.current_leader. this is because
-            // the node we gave our vote might not have won the election, instead
-            // we  leave that to the follower state to update.
-            //  -> since terms are equal
-            // if we_have_a_current_leader: ->
-            //  if current_leader_dont_match_with_req_id {
-            //      if we_voted_for_req_id => assign_as_new_leader }
-            // else no_current_leader: ->
-            //  if current_leader_dont_match_and_we_dont_have_leader {
-            //      and we_did_not_vote_for_them
-            //  }
-            //
-            //  but thats too much bookeeping and probs wrong
-            //  but if we as a follower recv a term higher than ours, should
-            //  we not clear our current_leader to None?
-
-            // clear the old leader as it belongs to an older term
-            // the follower state will then accept whoever won the election
-            // for this new term
-            state.current_leader = None;
-            match state.rs {
-                RaftState::Candidate | RaftState::Leader => {
-                    (accept_reply, Some(RaftState::Follower))
-                }
-                RaftState::Follower => (accept_reply, None),
-                _ => (
-                    accept_reply,
-                    Some(RaftState::Shutdown(ShutdownErrors::Unexpected)),
-                ),
-            }
-        }
-    }
-}
-
-// fn append_handler(req: &AppendEntryReq, state: &mut State) -> AppendEntryReply {
-//     if req.term < state.term {
-//         return AppendEntryReply {
-//             id: state.id,
-//             term: state.term,
-//             conflict_index: 0,
-//             conflict_term: None,
-//             success: false,
-//             reset_timer: false,
-//         };
-//     };
-//
-//     let mut accept_reply = AppendEntryReply {
-//         id: state.id,
-//         term: state.term,
-//         conflict_index: 0,
-//         conflict_term: None,
-//         success: false,
-//         reset_timer: false,
-//     };
-// }
-
-pub fn append_handler(req: &AppendEntryReq, state: &mut State) -> AppendEntryReply {
-    let reject_reply = AppendEntryReply {
-        id: state.id,
-        term: state.term,
-        success: false,
-        conflict_index: 0,
-        conflict_term: None,
-        reset_timer: false,
-    };
-
-    if req.term < state.term {
-        return reject_reply;
-    }
-
-    let mut accept_reply = AppendEntryReply {
-        id: state.id,
-        term: state.term,
-        success: false,
-        conflict_index: 0,
-        conflict_term: None,
-        reset_timer: true,
-    };
-
-    let current_leader = state.current_leader;
-    if req.term > state.term {
-        // update the leader for current term
-        state.current_leader = Some(req.id);
-        state.voted_for = Some(req.id);
-        state.term = req.term;
-
-        let stats = check_log_consistency(req, state);
-        accept_reply.conflict_index = stats.conflict_index;
-        accept_reply.conflict_term = stats.conflict_term;
-        accept_reply.success = stats.success;
-        accept_reply.term = req.term;
-        accept_reply
-    } else {
-        // terms are equal
-        // - check if it's a valid/new leader
-        //  - new leader if current_leader is None
-        //  - valid leader if current_leader.Some == req.id
-        if let Some(leader) = current_leader {
-            // invalid leader
-            if leader != req.id {
-                return reject_reply;
-            }
-            // valid leader
-
-            let stats = check_log_consistency(req, state);
-            accept_reply.conflict_index = stats.conflict_index;
-            accept_reply.conflict_term = stats.conflict_term;
-            accept_reply.success = stats.success;
-            accept_reply.term = req.term;
-            accept_reply
-        } else {
-            // new leader for new term
-
-            state.current_leader = Some(req.id);
-            state.voted_for = Some(req.id);
-            state.term = req.term;
-
-            let stats = check_log_consistency(req, state);
-            accept_reply.conflict_index = stats.conflict_index;
-            accept_reply.conflict_term = stats.conflict_term;
-            accept_reply.success = stats.success;
-            accept_reply.term = req.term;
-            accept_reply
-        }
-    }
-}
-
-pub fn vote_handler(req: &VoteReq, state: &mut State) -> VoteReply {
-    let reject_reply = VoteReply {
-        id: state.id,
-        term: state.term,
-        granted: false,
-    };
-
-    if req.term <= state.term {
-        return reject_reply;
-    }
-
-    // a vote request is valid if the term is higher, and the
-    // candidate's logs are up to date
-    let accept_reply = VoteReply {
-        id: state.id,
-        term: req.term,
-        granted: true,
-    };
-
-    let logs_are_up_to_date =
-        state.candidate_log_is_up_to_date(req.last_log_index, req.last_log_term);
-    if !logs_are_up_to_date {
-        reject_reply
-    } else {
-        println!(
-            "node:{} \tgranting vote to: {:?}, my_term:{}",
-            state.id, req, state.term
-        );
-
-        state.term = req.term;
-        state.voted_for = Some(req.id);
-        state.current_leader = None;
-
-        accept_reply
-    }
-}

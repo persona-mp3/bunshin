@@ -1,5 +1,5 @@
+use crate::State;
 use crate::protocol::{AppendEntryReply, AppendEntryReq, VoteReply, VoteReq};
-use crate::{RaftState, ShutdownErrors, State};
 
 /// check_log_consistency takes the `previous_log_index` and `previous_log_term`
 /// from a request and checks if it has any any log at that index.
@@ -91,62 +91,6 @@ pub fn check_log_consistency(req: &AppendEntryReq, state: &mut State) -> AppendE
         }
     }
     reply
-}
-
-pub fn handle_vote_request(req: &VoteReq, state: &mut State) -> (VoteReply, Option<RaftState>) {
-    let reject_reply = VoteReply {
-        id: state.id,
-        term: state.term,
-        granted: false,
-    };
-
-    let mut accept_reply = VoteReply {
-        id: state.id,
-        term: state.term,
-        granted: true,
-    };
-
-    if req.term <= state.term {
-        (reject_reply, None)
-    } else {
-        // check if candidates log is up to date
-        let logs_are_up_to_date =
-            state.candidate_log_is_up_to_date(req.last_log_index, req.last_log_term);
-
-        if !logs_are_up_to_date {
-            println!(
-                "node:{} \tdenying vote as candidate_logs are not up to date: {:?}",
-                state.id, req
-            );
-            (reject_reply, None)
-        } else {
-            println!(
-                "node:{} \tgranting vote to: {:?}, my_term:{}",
-                state.id, req, state.term
-            );
-            state.term = req.term;
-            accept_reply.term = req.term;
-            state.voted_for = Some(req.id);
-
-            // NOTE that we don't update the state.current_leader. this is because
-            // the node we gave our vote might not have won the election, instead
-            // we  leave that to the follower state to update.
-            // clear the old leader as it belongs to an older term
-            // the follower state will then accept whoever won the election
-            // for this new term
-            state.current_leader = None;
-            match state.rs {
-                RaftState::Candidate | RaftState::Leader => {
-                    (accept_reply, Some(RaftState::Follower))
-                }
-                RaftState::Follower => (accept_reply, None),
-                _ => (
-                    accept_reply,
-                    Some(RaftState::Shutdown(ShutdownErrors::Unexpected)),
-                ),
-            }
-        }
-    }
 }
 
 pub fn append_handler(req: &AppendEntryReq, state: &mut State) -> AppendEntryReply {
@@ -473,6 +417,64 @@ pub fn vote_handler(req: &VoteReq, state: &mut State) -> VoteReply {
 //                 state.id, state, req
 //             );
 //             (reply, Some(RaftState::Shutdown(ShutdownErrors::Unexpected)))
+//         }
+//     }
+// }
+//
+//
+
+// pub fn handle_vote_request(req: &VoteReq, state: &mut State) -> (VoteReply, Option<RaftState>) {
+//     let reject_reply = VoteReply {
+//         id: state.id,
+//         term: state.term,
+//         granted: false,
+//     };
+//
+//     let mut accept_reply = VoteReply {
+//         id: state.id,
+//         term: state.term,
+//         granted: true,
+//     };
+//
+//     if req.term <= state.term {
+//         (reject_reply, None)
+//     } else {
+//         // check if candidates log is up to date
+//         let logs_are_up_to_date =
+//             state.candidate_log_is_up_to_date(req.last_log_index, req.last_log_term);
+//
+//         if !logs_are_up_to_date {
+//             println!(
+//                 "node:{} \tdenying vote as candidate_logs are not up to date: {:?}",
+//                 state.id, req
+//             );
+//             (reject_reply, None)
+//         } else {
+//             println!(
+//                 "node:{} \tgranting vote to: {:?}, my_term:{}",
+//                 state.id, req, state.term
+//             );
+//             state.term = req.term;
+//             accept_reply.term = req.term;
+//             state.voted_for = Some(req.id);
+//
+//             // NOTE that we don't update the state.current_leader. this is because
+//             // the node we gave our vote might not have won the election, instead
+//             // we  leave that to the follower state to update.
+//             // clear the old leader as it belongs to an older term
+//             // the follower state will then accept whoever won the election
+//             // for this new term
+//             state.current_leader = None;
+//             match state.rs {
+//                 RaftState::Candidate | RaftState::Leader => {
+//                     (accept_reply, Some(RaftState::Follower))
+//                 }
+//                 RaftState::Follower => (accept_reply, None),
+//                 _ => (
+//                     accept_reply,
+//                     Some(RaftState::Shutdown(ShutdownErrors::Unexpected)),
+//                 ),
+//             }
 //         }
 //     }
 // }

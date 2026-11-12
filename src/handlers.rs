@@ -1,127 +1,127 @@
 use crate::protocol::{AppendEntryReply, AppendEntryReq, VoteReply, VoteReq};
 use crate::{RaftState, ShutdownErrors, State};
 
-pub fn handle_append_entry_request(
-    req: &AppendEntryReq,
-    state: &mut State,
-) -> (AppendEntryReply, Option<RaftState>) {
-    if req.term < state.term {
-        let mut reply = AppendEntryReply::default(state.id);
-        reply.term = state.term;
-        return (reply, None);
-    }
-
-    match state.rs {
-        RaftState::Follower => {
-            if req.term > state.term {
-                state.assign_leader(req.id);
-                state.term = req.term;
-
-                let reply = check_log_consistency(req, state);
-                return (reply, None);
-            };
-
-            // now that both terms are equal if we don't have a leader for current term
-            // it could happend on the following occasions:
-            // - we lost a previous election due to a timeout or
-            // - no votes were granted
-            //  -  node was partitioned from the cluster and couldn't reach anyone
-            if !state.has_leader() {
-                println!(
-                    "[follower:{}] no leader for current term, accepting {:?}",
-                    state.id, req
-                );
-                state.assign_leader(req.id);
-                let reply = check_log_consistency(req, state);
-                return (reply, None);
-            }
-
-            let current_leader = state.get_leader();
-            if current_leader != req.id {
-                if Some(current_leader) == state.voted_for {
-                    println!(
-                        "ahh, voted_for {} but not yet assigned as leader. voted_for: {:?}",
-                        current_leader, state.voted_for
-                    );
-                }
-                println!(
-                    "[follower:{}] \tduplicate leaders for term:{:?}, leader: {}, req: {:?}",
-                    state.id, state.term, current_leader, req
-                );
-
-                let reply = AppendEntryReply {
-                    id: state.id,
-                    term: state.term,
-                    conflict_index: 0,
-                    conflict_term: None,
-                    reset_timer: false,
-                    success: false,
-                };
-                return (reply, None);
-            }
-
-            // now terms are equal, and we have a valid leader that matches our stored one
-            let reply = check_log_consistency(req, state);
-            (reply, None)
-        }
-
-        RaftState::Candidate => {
-            if req.term >= state.term {
-                state.term = req.term;
-                state.voted_for = Some(req.id);
-                state.current_leader = Some(req.id);
-                let mut reply = check_log_consistency(req, state);
-                reply.reset_timer = true;
-                return (reply, Some(RaftState::Follower));
-            }
-
-            // just reject lower or equal terms
-            (
-                AppendEntryReply {
-                    id: state.id,
-                    term: state.term,
-                    conflict_index: 0,
-                    conflict_term: None,
-                    reset_timer: false,
-                    success: false,
-                },
-                None,
-            )
-        }
-
-        RaftState::Leader => {
-            if req.term > state.term {
-                state.assign_leader(req.id);
-                state.term = req.term;
-
-                let reply = check_log_consistency(req, state);
-                return (reply, None);
-            };
-
-            (
-                AppendEntryReply {
-                    id: state.id,
-                    term: state.term,
-                    conflict_index: 0,
-                    conflict_term: None,
-                    reset_timer: false,
-                    success: false,
-                },
-                None,
-            )
-        }
-        _ => {
-            println!(
-                "unhandled case in handle_append_entry_request: state: {:?}, request: {:?}",
-                state, req
-            );
-            (
-                AppendEntryReply::default(state.id),
-                Some(RaftState::Shutdown(ShutdownErrors::Unexpected)),
-            )
-        }
-    }
-}
+// pub fn handle_append_entry_request(
+//     req: &AppendEntryReq,
+//     state: &mut State,
+// ) -> (AppendEntryReply, Option<RaftState>) {
+//     if req.term < state.term {
+//         let mut reply = AppendEntryReply::default(state.id);
+//         reply.term = state.term;
+//         return (reply, None);
+//     }
+//
+//     match state.rs {
+//         RaftState::Follower => {
+//             if req.term > state.term {
+//                 state.assign_leader(req.id);
+//                 state.term = req.term;
+//
+//                 let reply = check_log_consistency(req, state);
+//                 return (reply, None);
+//             };
+//
+//             // now that both terms are equal if we don't have a leader for current term
+//             // it could happend on the following occasions:
+//             // - we lost a previous election due to a timeout or
+//             // - no votes were granted
+//             //  -  node was partitioned from the cluster and couldn't reach anyone
+//             if !state.has_leader() {
+//                 println!(
+//                     "[follower:{}] no leader for current term, accepting {:?}",
+//                     state.id, req
+//                 );
+//                 state.assign_leader(req.id);
+//                 let reply = check_log_consistency(req, state);
+//                 return (reply, None);
+//             }
+//
+//             let current_leader = state.get_leader();
+//             if current_leader != req.id {
+//                 if Some(current_leader) == state.voted_for {
+//                     println!(
+//                         "ahh, voted_for {} but not yet assigned as leader. voted_for: {:?}",
+//                         current_leader, state.voted_for
+//                     );
+//                 }
+//                 println!(
+//                     "[follower:{}] \tduplicate leaders for term:{:?}, leader: {}, req: {:?}",
+//                     state.id, state.term, current_leader, req
+//                 );
+//
+//                 let reply = AppendEntryReply {
+//                     id: state.id,
+//                     term: state.term,
+//                     conflict_index: 0,
+//                     conflict_term: None,
+//                     reset_timer: false,
+//                     success: false,
+//                 };
+//                 return (reply, None);
+//             }
+//
+//             // now terms are equal, and we have a valid leader that matches our stored one
+//             let reply = check_log_consistency(req, state);
+//             (reply, None)
+//         }
+//
+//         RaftState::Candidate => {
+//             if req.term >= state.term {
+//                 state.term = req.term;
+//                 state.voted_for = Some(req.id);
+//                 state.current_leader = Some(req.id);
+//                 let mut reply = check_log_consistency(req, state);
+//                 reply.reset_timer = true;
+//                 return (reply, Some(RaftState::Follower));
+//             }
+//
+//             // just reject lower or equal terms
+//             (
+//                 AppendEntryReply {
+//                     id: state.id,
+//                     term: state.term,
+//                     conflict_index: 0,
+//                     conflict_term: None,
+//                     reset_timer: false,
+//                     success: false,
+//                 },
+//                 None,
+//             )
+//         }
+//
+//         RaftState::Leader => {
+//             if req.term > state.term {
+//                 state.assign_leader(req.id);
+//                 state.term = req.term;
+//
+//                 let reply = check_log_consistency(req, state);
+//                 return (reply, None);
+//             };
+//
+//             (
+//                 AppendEntryReply {
+//                     id: state.id,
+//                     term: state.term,
+//                     conflict_index: 0,
+//                     conflict_term: None,
+//                     reset_timer: false,
+//                     success: false,
+//                 },
+//                 None,
+//             )
+//         }
+//         _ => {
+//             println!(
+//                 "unhandled case in handle_append_entry_request: state: {:?}, request: {:?}",
+//                 state, req
+//             );
+//             (
+//                 AppendEntryReply::default(state.id),
+//                 Some(RaftState::Shutdown(ShutdownErrors::Unexpected)),
+//             )
+//         }
+//     }
+// }
 
 /// check_log_consistency takes the `previous_log_index` and `previous_log_term`
 /// from a request and checks if it has any any log at that index.

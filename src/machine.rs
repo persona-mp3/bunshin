@@ -1,6 +1,6 @@
 use crate::{
-    RaftState, State, candidate::run_candidate, follower::run_follower, leader::run_leader,
-    protocol::Packet, transport::Transport, utils,
+    HEARTBEAT_TIMEOUT, RaftState, State, candidate::run_candidate, follower::run_follower,
+    leader::run_leader, protocol::Packet, transport::Transport, utils,
 };
 use crossbeam::channel::Receiver;
 #[allow(unused)]
@@ -36,7 +36,6 @@ impl Machine {
                 RaftState::Follower => {
                     let timeout = utils::random_timeout();
                     let next_state = run_follower(network_rx, state, timeout);
-                    println!("transitioning from Follower -> {:?}", next_state);
                     assert_ne!(
                         next_state,
                         RaftState::Follower,
@@ -65,7 +64,7 @@ impl Machine {
                     next_state
                 }
                 RaftState::Leader => {
-                    let timeout = utils::random_timeout();
+                    let timeout = Duration::from_secs(HEARTBEAT_TIMEOUT);
                     let t = Arc::clone(&dialer);
                     let protected_state = Arc::new(Mutex::new(state.clone()));
 
@@ -78,17 +77,14 @@ impl Machine {
                         "Leader state should not return to Candidate state"
                     );
 
+                    state.rs = next_state.clone();
                     *state = new_state;
                     next_state
                 }
                 RaftState::Shutdown(msg) => {
                     println!("shutting down: state: {:?}", msg);
                     return;
-                } // _ => {
-                  //     let _ = network_rx;
-                  //     println!("unhandled state: {:?}", next_state);
-                  //     return;
-                  // }
+                }
             }
         }
     }

@@ -15,6 +15,12 @@ pub mod transport;
 pub mod utils;
 pub mod worker;
 
+// TODO(daniel): this should be included in a configuration option
+// and in relation to the election_timeout generated from `utils::random_timeout`
+// it should use HEARTBEAT_TIMEOUT as a measurement bound ie 3x as lowest possible
+// election timeout and 5x as max election timeout.
+const HEARTBEAT_TIMEOUT: u64 = 1;
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ShutdownErrors {
     /// Represents that the server or state machine longer listens for network rpcs
@@ -42,10 +48,10 @@ pub struct LogEntry {
     pub command: Command,
 }
 
-impl LogEntry {
+impl Default for LogEntry {
     /// Returns an entry with index and term initialised as 0
     /// operation as "set", key as "init" and value as "init_value"
-    pub fn default() -> Self {
+    fn default() -> Self {
         LogEntry {
             index: 0,
             term: 0,
@@ -66,8 +72,8 @@ pub struct Command {
     pub operation: String,
 }
 
-impl Command {
-    pub fn default() -> Self {
+impl Default for Command {
+    fn default() -> Self {
         Command {
             key: "init".to_string(),
             value: "init_value".to_string(),

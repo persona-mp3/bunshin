@@ -3,7 +3,7 @@
 #![allow(unused)]
 use crate::{
     RaftState, ShutdownErrors, State,
-    handlers::{handle_append_entry_request, handle_vote_request},
+    handlers::{append_handler, vote_handler},
     protocol::{AppendEntryReq, Packet, Rpc},
     transport::Transport,
     utils::send_and_recv_json,
@@ -67,35 +67,43 @@ pub fn run_leader<T: Transport + 'static>(
                 match packet.rpc {
                     Rpc::AppendEntryReq(req) => {
                         let mut s = clone.lock().unwrap();
-                        let (reply, next) = handle_append_entry_request(&req, &mut s);
+                        let reply = append_handler(&req, &mut s);
+                        let should_reset_timer = reply.reset_timer;
 
-                        // non-blocking and fails  after first try to send
                         let _ = packet.sender.try_send(Rpc::AppendEntryReply(reply.clone()));
-                        if reply.term > ruling_term {
-                            println!("dropping from leader->follower");
-                            return (s.clone(), RaftState::Follower)
-                        } else if req.term == ruling_term {
-                            println!("!! invariant found, two leaders for current term !!");
-                            println!("!! i_am:{:?}, my_term: {:?}, append_entry_req_from:{:?}", node_id, ruling_term, req);
-                            return (s.clone(), RaftState::Shutdown(ShutdownErrors::Unexpected));
+                        if should_reset_timer {
+                            // while a candidate, we set ourself as the current leader for this term
+                            // so the append_handler will always check that if we have a leader
+                            // (which we already set in candiadte) is the same as the id from the req
+                            // if they don't match it rejects the request and reset_timer is false,
+                            // although this should not happen ( two leaders for a term ) so a
+                            // leader who recvs an append_entry will only drop if the
+                            // req.term > ruling_term
+                            assert!(
+                                req.term > ruling_term,
+                                "[leader:{}] should not step down from a stale term request or similar term request. my_term:{:?}, req:{:?}",
+                                s.id, ruling_term, req
+                            );
+
+                            return (s.clone(), RaftState::Follower);
                         };
 
-                        println!("recvd lower_term append append_entry::{:?}", req);
-
                     },
+
                     Rpc::VoteReq(req) => {
                         let mut s = clone.lock().unwrap();
-                        let (reply, next) = handle_vote_request(&req, &mut s);
+                        let reply = vote_handler(&req, &mut s);
+                        let granted_vote = reply.granted;
 
-                        // non-blocking and fails  after first try to send
                         let _ = packet.sender.try_send(Rpc::VoteReply(reply.clone()));
-
-
-                        if next.is_some() {
-                            println!("stepping down from leader in vote_handler");
-                            return (s.clone(), next.unwrap());
+                        if granted_vote {
+                            assert!(
+                                req.term > ruling_term,
+                                "[leader:{}] should not step down from a stale term vote_request. my_term:{:?}, req:{:?}",
+                                s.id, ruling_term, req
+                            );
+                            return (s.clone(), RaftState::Follower);
                         }
-
 
                     },
                     _ => {

@@ -35,14 +35,26 @@ impl WorkerThread {
         let mut json_reader = serde_json::Deserializer::from_reader(reader).into_iter();
 
         let mut timer = channel::after(std::time::Duration::from_millis(1));
+
+        // TODO: another reason why we need the bus
+        // if the main thread handlers update the term, it means the node should
+        // step down, but because there's no mechanism for shutdown, the main
+        // leader loop will exit, and the worker threads will use that updated value
+        // Hence, causing two leaders for a new term
+        #[allow(unused)]
         let mut node_id: u64 = 0;
+        #[allow(unused)]
+        let mut ruling_term: u64 = 0;
+
         let mut initial_req = {
             let s = self.state.lock().unwrap();
             let last_log = s.get_last_log();
             node_id = s.id;
+            ruling_term = s.term;
+
             AppendEntryReq {
-                id: s.id,
-                term: s.term,
+                id: node_id,
+                term: ruling_term,
                 commit_index: s.commit_index as u64,
                 info: None,
                 entry: None,
@@ -53,18 +65,17 @@ impl WorkerThread {
 
         #[allow(unused)]
         let mut rpc_req = Rpc::AppendEntryReq(initial_req);
-        println!("worker loop started...");
 
         loop {
             select! {
                 recv(timer) -> signal => {
-                    signal.unwrap_or_else(|_| panic!("worker:{} unexpected failure as signal for timer broke", self.addr));
+                    signal.unwrap_or_else(|_| panic!("[worker:{}] unexpected failure as signal for timer broke", self.addr));
                     initial_req = {
                         let current_state = self.state.lock().unwrap();
                         let  last_log = current_state.get_last_log();
                         AppendEntryReq {
-                            id: current_state.id,
-                            term: current_state.term,
+                            id: node_id,
+                            term: ruling_term,
                             commit_index: current_state.commit_index as u64,
                             info: None,
                             entry: None,
@@ -108,15 +119,15 @@ impl WorkerThread {
                             let _drop_lock = self.state.lock().unwrap();
 
                             panic!(
-                                "worker:{}!! Expected AppendEntryReply got rpc: {:?}. Held the lock and panicked, Node should shutdown",
+                                "[worker:{}] !! Expected AppendEntryReply got rpc: {:?}. Held the lock and panicked, Node should shutdown",
                                 node_id, reply
                             )
                         }
                     };
 
-                    if append_entry_reply.term > initial_req.term {
+                    if append_entry_reply.term > ruling_term {
                         println!(
-                            "[worker:{}]stepping down our term:{} is outdated from reply: {:?}",
+                            "[worker:{}] stepping down our term:{} is outdated from reply: {:?}",
                             node_id, initial_req.term, append_entry_reply
                         );
                         break
@@ -125,12 +136,12 @@ impl WorkerThread {
                     assert_eq!(
                         append_entry_reply.term,
                         initial_req.term,
-                        "[worker:{}]expected AppendEntryReply term to match our term:{}. Followers should send a term match. Reply: {:?}",
+                        "[worker:{}] expected AppendEntryReply term to match our term:{}. Followers should send a term match. Reply: {:?}",
                         node_id, initial_req.term, append_entry_reply
                     );
 
                     if !append_entry_reply.success  {
-                        println!("heartbeat unsuccess, stepping back log: {:?}", append_entry_reply);
+                        println!("[worker:{}] heartbeat unsuccess {:?}, last message sent {:?}", node_id, append_entry_reply, initial_req);
                     }
 
                     timer = channel::after(hb);

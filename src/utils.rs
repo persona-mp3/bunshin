@@ -36,7 +36,7 @@ pub fn send_and_recv_json<R: Iterator<Item = serde_json::Result<protocol::Rpc>>>
 /// Validates all peer addresses as valid IP addresses and the listen address
 /// of this node is not included as a peer
 pub fn parse_peers(
-    listen_addr: &String,
+    listen_addr: &str,
     raw_peer: Option<Vec<String>>,
 ) -> Result<Vec<String>, Box<dyn Error>> {
     use std::net::ToSocketAddrs;
@@ -54,7 +54,7 @@ pub fn parse_peers(
 
     for (idx, port) in peers.as_slice().iter().enumerate() {
         let addr = format!("localhost:{}", port);
-        if addr == listen_addr.as_str() {
+        if addr == listen_addr {
             let msg = format!("cannot use self.addr as a peer at index: {}", idx);
             return Err(msg.into());
         }

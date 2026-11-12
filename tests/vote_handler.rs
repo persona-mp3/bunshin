@@ -142,8 +142,10 @@ fn test_handler_rejcts_higher_terms_with_incomplete_logs() {
     let mut state = State::new(TEST_NODE_ID);
     state.term = base_term;
     // update it's logs using 1based index
-    let mut e = LogEntry::default();
-    e.index = state.logs.len();
+    let e = LogEntry {
+        index: state.logs.len(),
+        ..Default::default()
+    };
     state.append_entry(e);
 
     let (reply, transition) = handle_vote_request(&vote_req, &mut state);

@@ -90,8 +90,8 @@ pub fn append_handler(req: &AppendEntryReq, state: &mut State) -> AppendEntryRep
 ///
 /// If the request meets the above requirements as described, the node adopts this higher term and
 /// clears it's `current_leader`. This handler does not set the `current_leader` to the sender id
-/// as this Candidate might not win the election. The [`append_handler`] is responsible for
-/// detecting that.
+/// as the Candidate who sent the request might not win the election. The [`append_handler`] is
+/// responsible for detecting that.
 pub fn vote_handler(req: &VoteReq, state: &mut State) -> VoteReply {
     let reject_reply = VoteReply {
         id: state.id,

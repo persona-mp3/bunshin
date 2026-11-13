@@ -44,7 +44,6 @@ fn main() -> Result<()> {
     let (done_tx, done_rx) = channel::unbounded();
 
     std::thread::spawn(move || {
-        println!("state-machine started");
         let mut state = State::new(args.node_id);
         // let transport = json_transport_dialer {};
         machine.run(&mut state, &mut network_rx, TcpTransport);

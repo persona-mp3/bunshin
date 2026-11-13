@@ -10,7 +10,7 @@ pub const TIMEOUT_SECS: u64 = 2;
 pub fn remove_file(path: &str) -> Result<()> {
     if fs::exists(path)? {
         fs::remove_file(path)
-            .with_context(|| format!("could not delete temp_file"))
+            .with_context(|| "could not delete temp_file".to_string())
             .unwrap()
     }
 

@@ -42,9 +42,6 @@ pub struct AppendEntryReq {
     /// empty the request is a heartbeat
     pub entry: Option<LogEntry>,
 
-    /// signifies if the receipient node recognises this node's AppendEntryReq
-    pub success: bool,
-
     /// additional debugging information
     pub info: Option<String>,
 }
@@ -154,7 +151,6 @@ impl AppendEntryReq {
             previous_log_term: 0,
             entry: None,
             commit_index: 0,
-            success: false,
             info: None,
         }
     }

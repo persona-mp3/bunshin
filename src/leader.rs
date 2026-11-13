@@ -142,7 +142,6 @@ fn begin_replication(
 
     let mut append_req = {
         let mut s = state.lock().unwrap();
-        // #[allow()]
         ruling_term = s.term;
         node_id = s.id;
 

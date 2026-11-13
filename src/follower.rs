@@ -101,4 +101,3 @@ pub fn run_follower(
         }
     }
 }
-

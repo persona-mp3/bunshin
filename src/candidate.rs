@@ -1,6 +1,6 @@
 use crate::{RaftState, ShutdownErrors, State};
 use crate::{
-    handlers::{handle_append_entry_request, handle_vote_request},
+    handlers::{append_handler, vote_handler},
     protocol::{Packet, Rpc, VoteReq},
     transport::Transport,
 };
@@ -30,6 +30,8 @@ pub fn run_candidate<T: Transport + 'static>(
     state.voted_for = Some(state.id);
     state.current_leader = None;
     state.term += 1;
+
+    let campaign_term = state.term;
 
     let last_log = state.get_last_log();
 
@@ -86,31 +88,30 @@ pub fn run_candidate<T: Transport + 'static>(
                 println!("candidate:{} new packet: {:?}", state.id, packet.rpc);
                 match packet.rpc {
                     Rpc::AppendEntryReq(req) => {
-                       let valid_drop = req.term >= state.term;
-                       let (reply, transition) = handle_append_entry_request(req, state);
-
-                       let r = packet.sender.try_send(Rpc::AppendEntryReply(reply));
-                       match r {
-                           Ok(_) => {},
-                           Err(err) => println!("candidate{} | failed to send to network_layer:: {err}", state.id),
-                       };
-
-                       if transition.is_some() {
-                           let next = transition.unwrap();
-                           assert_eq!(valid_drop, true, "Candidate must drop to Follower when AppendEntryRequest is similar or higher to term");
-                           assert_eq!(next, RaftState::Follower, "Candidate must only recevive Follower state from handler");
+                       let reply = append_handler(&req, state);
+                       let should_drop = reply.reset_timer;
+                       let _ = packet.sender.try_send(Rpc::AppendEntryReply(reply));
+                       if should_drop {
+                           println!(
+                               "[candidate:{}] recvd higher append entry. dropping to follower. term:{}, req: {:?}",
+                               state.id, campaign_term, req
+                            );
+                           assert!(
+                               req.term >= campaign_term,
+                               "[candidate{}] should not drop to lower append_entry request. term: {}, req: {:?}",
+                               state.id, campaign_term, req
+                            );
                            return RaftState::Follower;
                        }
 
                     }
 
                     Rpc::VoteReq(req) => {
-                        let (reply, transition) = handle_vote_request(req, state);
+                        let reply  = vote_handler(&req, state);
                         let _ = packet.sender.try_send(Rpc::VoteReply(reply));
 
-                        if transition.is_some() {
-                            let next = transition.unwrap();
-                            assert_eq!(next, RaftState::Follower, "Candidate must only recevive Follower state from handler");
+                        if req.term > campaign_term {
+                            println!("[candidate:{}] granted vote to: {:?}, stepping down.", state.id, req);
                             return RaftState::Follower;
                         }
                     }
@@ -139,18 +140,18 @@ pub fn run_candidate<T: Transport + 'static>(
                             println!("granted vote from {:?}, checking majority", reply);
                             // now check if we've acheived majority
                             if recvd_votes >= majority {
-                                println!("won election, recvd: {:?} votes against {:?}", recvd_votes, majority);
                                 state.voted_for = Some(state.id);
                                 state.current_leader = Some(state.id);
                                 return RaftState::Leader;
                             }
-                        } else {
-                            // we don't necessarily need to check the term here because if that node
-                            // is higher, it could be the only possible node whose term in the whole
-                            // cluster is higher, it hasn't reached other nodes, and this node still
-                            // has a chance
-                            println!("denied vote from {:?}", reply);
                         }
+                        // else {
+                        //     // we don't necessarily need to check the term here because if that node
+                        //     // is higher, it could be the only possible node whose term in the whole
+                        //     // cluster is higher, it hasn't reached other nodes, and this node still
+                        //     // has a chance
+                        //     println!("denied vote from {:?}", reply);
+                        // }
                     },
                     _ => {
                         println!("Candidate:{:?} \trecvd unexpected reply from vote_reply {:?} ", state.id, rpc_reply);

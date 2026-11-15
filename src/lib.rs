@@ -1,15 +1,24 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::{
+    fs::File,
+    io::{BufWriter, Write},
+};
 
 pub mod candidate;
 pub mod follower;
 pub mod handlers;
+pub mod leader;
 pub mod machine;
 pub mod protocol;
 pub mod transport;
 pub mod utils;
+
+// TODO(daniel): this should be included in a configuration option
+// and in relation to the election_timeout generated from `utils::random_timeout`
+// it should use HEARTBEAT_TIMEOUT as a measurement bound ie 3x as lowest possible
+// election timeout and 5x as max election timeout.
+const HEARTBEAT_TIMEOUT: u64 = 1;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ShutdownErrors {
@@ -38,10 +47,10 @@ pub struct LogEntry {
     pub command: Command,
 }
 
-impl LogEntry {
+impl Default for LogEntry {
     /// Returns an entry with index and term initialised as 0
     /// operation as "set", key as "init" and value as "init_value"
-    pub fn default() -> Self {
+    fn default() -> Self {
         LogEntry {
             index: 0,
             term: 0,
@@ -62,8 +71,8 @@ pub struct Command {
     pub operation: String,
 }
 
-impl Command {
-    pub fn default() -> Self {
+impl Default for Command {
+    fn default() -> Self {
         Command {
             key: "init".to_string(),
             value: "init_value".to_string(),
@@ -162,7 +171,7 @@ impl State {
         // current_logs = [0, 1, 2, 3, 4]
         // the next log should be entry.index should be 5
         assert_eq!(
-            self.logs.len() + 1,
+            self.logs.len(),
             entry.index,
             "
             it is required that a new log getting appended 
@@ -210,20 +219,22 @@ impl State {
         // self.logs = truncated_logs.to_vec()
         self.logs.truncate(start_index);
     }
-    pub fn append_log(&mut self, log_entry: LogEntry) {
-        self.logs.push(log_entry)
+
+    pub fn get_previous_log(&mut self) -> LogEntry {
+        if self.logs.is_empty() {
+            LogEntry::default()
+        } else if self.logs.len() == 1 {
+            self.logs[0].clone()
+        } else {
+            let prev_log = self.logs.get(self.logs.len() - 2);
+            if let Some(log) = prev_log {
+                log.clone()
+            } else {
+                LogEntry::default()
+            }
+        }
     }
 
-    /// Raft uses the voting process to prevent a candidate from winning an election
-    /// unless its log contains all committed entries. A candidate must contact a
-    /// majority of the cluster in order to be elected, which means that every
-    /// committed entry must be present in at least one of those servers. If the
-    /// candidate's log is at least as up-to-date as any other log in that majority
-    /// (where "up-to-date" is defined precisely below), then it will hold all the
-    /// committed entries. The RequestVote RPC implements this restriction: the RPC
-    /// includes information about the candidate's log, and the voter denies its vote
-    /// if its own log is more up-to-date than that of the candidate.
-    ///
     /// Raft determines which of two logs is more up-to-date by comparing the index
     /// and term of the last entries in the logs. If the logs have last entries with
     /// different terms, then the log with the later term is more up-to-date. If the

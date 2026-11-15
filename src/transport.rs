@@ -31,7 +31,6 @@ impl Transport for TcpTransport {
         let conn =
             TcpStream::connect(addr).with_context(|| format!("failed to connect to {:?}", addr))?;
 
-        println!("transport: connected to {}", addr);
         let mut writer = BufWriter::new(
             conn.try_clone()
                 .with_context(|| "failed to clone connection for writing".to_string())?,

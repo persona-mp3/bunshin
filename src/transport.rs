@@ -1,40 +1,51 @@
 //! Transport provides an interface for making external rpc calls by the state machine
 //! At the moment, this has be tailored the [Candidate] state. Main reason for
 //! abstracting it into a trait is for testablitly as we don't actual tests
-//! making arbitrary connections.
+//! making arbitrary send_rpcions.
 //!
 //! The tansport implementations available by default are [TcpTransport] which creates Tcp
-//! connections and uses json and [SimTransport] which stores responses locally within itself
+//! send_rpcions and uses json and [SimTransport] which stores responses locally within itself
 use crate::{protocol::Rpc, utils::send_and_recv_json};
 
 use anyhow::{Context, Result};
+use crossbeam::channel::{Receiver, Sender};
 use serde_json;
 use std::collections::HashMap;
 use std::{
-    io::{BufReader, BufWriter},
+    io::{BufReader, BufWriter, Read, Write},
     net::TcpStream,
+    sync::Mutex,
 };
-
-use std::sync::Mutex;
 
 /// Transport trait for making network rpc calls
 pub trait Transport: Send + Sync {
-    fn connect(&self, addr: &str, req: Rpc) -> Result<Rpc>;
+    type Conn: Read + Write;
+    fn connect(&self, addr: &str) -> Result<Self::Conn>;
+
+    fn send_rpc(&self, addr: &str, req: Rpc) -> Result<Rpc>;
 }
 
-/// TcpTransport connects to the addr over tcp. It uses `serde_json` for parsing
+/// TcpTransport send_rpcs to the addr over tcp. It uses `serde_json` for parsing
 /// and marshalling the data and response
 pub struct TcpTransport;
 
 impl Transport for TcpTransport {
-    fn connect(&self, addr: &str, req: Rpc) -> Result<Rpc> {
-        let conn =
-            TcpStream::connect(addr).with_context(|| format!("failed to connect to {:?}", addr))?;
+    type Conn = TcpStream;
+    /// connect attemps to make a tcp connection to `addr` and returns
+    /// that stream
+    fn connect(&self, addr: &str) -> Result<Self::Conn> {
+        Ok(TcpStream::connect(addr)?)
+    }
 
-        println!("transport: connected to {}", addr);
+    /// send_rpc connects to the client, sends a request and expects a single response back.
+    /// Afterwards the connection is dropped
+    fn send_rpc(&self, addr: &str, req: Rpc) -> Result<Rpc> {
+        let conn = TcpStream::connect(addr)
+            .with_context(|| format!("failed to send_rpc to {:?}", addr))?;
+
         let mut writer = BufWriter::new(
             conn.try_clone()
-                .with_context(|| "failed to clone connection for writing".to_string())?,
+                .with_context(|| "failed to clone send_rpcion for writing".to_string())?,
         );
 
         let reader = BufReader::new(conn);
@@ -53,9 +64,34 @@ pub struct SimTransport {
     pub conn_res: Mutex<HashMap<String, Rpc>>,
 }
 
+pub struct SimConn {}
+
+impl Read for SimConn {
+    fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+        Ok(0)
+    }
+}
+
+impl Write for SimConn {
+    fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+        Ok(1)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 impl Transport for SimTransport {
-    /// connect panics when a call was made to an unregistered address
-    fn connect(&self, addr: &str, _req: Rpc) -> Result<Rpc> {
+    /// send_rpc panics when a call was made to an unregistered address
+    type Conn = SimConn;
+    fn connect(&self, _addr: &str) -> Result<Self::Conn> {
+        BufReader::new(SimConn{});
+        Ok(SimConn {})
+    }
+
+
+    fn send_rpc(&self, addr: &str, _req: Rpc) -> Result<Rpc> {
         let conn = self.conn_res.lock().unwrap();
         let response = conn
             .get(addr)

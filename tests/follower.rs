@@ -1,8 +1,7 @@
 use bunshin::{LogEntry, RaftState, ShutdownErrors, State, follower::run_follower, protocol::*};
-use crossbeam::channel::{self, Receiver};
+use crossbeam::channel;
 use std::{
     sync::{Arc, Mutex},
-    thread,
     time::Duration,
 };
 mod test_utils;
@@ -22,7 +21,7 @@ fn test_follower_accepts_higher_term_append_entry() {
         let mut s = clone.lock().expect("failed to acquire lock for state");
         let timeout = Duration::from_secs(test_utils::TIMEOUT_SECS);
 
-        run_follower(&mut network_rx, &mut *s, timeout)
+        run_follower(&mut network_rx, &mut s, timeout)
     });
 
     // acks higher term
@@ -60,9 +59,8 @@ fn test_follower_accepts_higher_term_append_entry() {
     );
 
     let mut final_state = locked.lock().expect("could not get lock for state");
-    assert_eq!(
+    assert!(
         final_state.has_leader(),
-        true,
         "node should have assigned {} as new leader",
         test_utils::TEST_NODE_ID
     );
@@ -91,7 +89,7 @@ fn test_follower_rejects_outdated_append_entry() {
         let mut s = clone.lock().expect("failed to acquire lock for state");
         let timeout = Duration::from_secs(test_utils::TIMEOUT_SECS);
 
-        run_follower(&mut network_rx, &mut *s, timeout);
+        run_follower(&mut network_rx, &mut s, timeout);
     });
 
     let outdated_req = AppendEntryReq::default(test_utils::TEST_NODE_ID); // starts at 0
@@ -124,16 +122,14 @@ fn test_follower_rejects_outdated_append_entry() {
 
     // check initial state remains
     let mut final_state = locked.lock().expect("could not get lock for state");
-    assert_eq!(
-        final_state.has_leader(),
-        false,
+    assert!(
+        !final_state.has_leader(),
         "node should not have assigned {} as new leader",
         test_utils::TEST_NODE_ID
     );
 
-    assert_eq!(
+    assert!(
         final_state.current_leader.is_none(),
-        true,
         "node should have assigned {} as new leader",
         test_utils::EXTERNAL_NODE_ID
     );

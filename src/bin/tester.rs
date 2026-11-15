@@ -156,7 +156,6 @@ fn test_node_appends_logs(
             },
         }),
         term: 1,
-        success: false,
         info: None,
     };
 

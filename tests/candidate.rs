@@ -43,7 +43,7 @@ fn test_candidate_updates_term_for_election() {
 }
 
 #[test]
-fn test_candidate_transitions_to_follower_with_majority_votes() {
+fn test_candidate_transitions_to_leader_with_majority_votes() {
     let mut state = State::new(TEST_NODE_ID);
     let mut sim_transport = SimTransport::default();
     state.rs = RaftState::Candidate;
